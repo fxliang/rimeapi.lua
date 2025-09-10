@@ -1,0 +1,15 @@
+a_string: a_string
+a_int: 10
+a_double: 520.233
+a_bool: true
+
+a_list:
+  - first_item
+  - second_item
+  - third_item
+
+a_map:
+  first_item: first_item
+  second_item: 233
+  third_item: 233.233
+  forth_item: false

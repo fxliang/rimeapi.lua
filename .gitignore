@@ -1,0 +1,14 @@
+build/*
+user/*
+log/*
+.xmake/*
+.vscode/*
+lib/*
+lib64/*
+include/*
+.cache
+*.so
+*.exe
+*.dll
+rimeapi.app
+compile_commands.json

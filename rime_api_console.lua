@@ -1,0 +1,307 @@
+if not RimeApi then
+  --- add the so/dll/lua files in cwd to package.cpath
+  -------------------------------------------------------------------------------
+  -- get absolute path of current script
+  local function script_path()
+    local fullpath = debug.getinfo(1,"S").source:sub(2)
+    local dirname, filename
+    if package.config:sub(1,1) == '\\' then
+      local dirname_, filename_ = fullpath:match('^(.*\\)([^\\]+)$')
+      local currentDir = io.popen("cd"):read("*l")
+      if not dirname_ then dirname_ = '.' end
+      if not filename_ then filename_ = fullpath end
+      local command = 'cd ' .. dirname_ .. ' && cd'
+      local p = io.popen(command)
+      fullpath = p:read("*l") .. '\\' .. filename_
+      p:close()
+      os.execute('cd ' .. currentDir)
+      fullpath = fullpath:gsub('[\n\r]*$','')
+      dirname, filename = fullpath:match('^(.*\\)([^\\]+)$')
+    else
+      fullpath = io.popen("realpath '"..fullpath.."'", 'r'):read('a')
+      fullpath = fullpath:gsub('[\n\r]*$','')
+      dirname, filename = fullpath:match('^(.*/)([^/]-)$')
+    end
+    dirname = dirname or ''
+    filename = filename or fullpath
+    return dirname
+  end
+
+  -- get path divider
+  local div = package.config:sub(1,1) == '\\' and '\\' or '/'
+  local lib = package.config:sub(1,1) == '\\' and '?.dll' or '?.so'
+  local script_cpath = script_path() .. div .. lib
+  -- add the ?.so or ?.dll to package.cpath ensure requiring
+  -- you must keep the rime.dll or librime.so in current search path
+  package.cpath = package.cpath .. ';' .. script_cpath
+  package.path = package.path .. ';' .. script_path() .. div .. '?.lua'
+  require('rimeapi')
+end
+-------------------------------------------------------------------------------
+local cp
+if package.config:sub(1, 1) == '\\' then
+  cp = set_console_codepage() -- set codepage to UTF-8, and return the original codepage
+  print("switched console codepage:", 65001, "from", cp)
+end
+local api = RimeApi()
+
+local BIT = jit and 16 or (math.maxinteger and math.maxinteger > 2^31 and 16 or 8) or 8
+-- session_id format
+local PFORMAT = "%0" .. BIT .. "X"
+-- message handler
+-- @param _ any not used
+-- @param session_id RimeSessionId
+-- @param msg_type string
+-- @param msg_value string
+-- @return nil
+local function on_message(_, session_id, msg_type, msg_value)
+  local msg = "lua > message: ["..PFORMAT.."] [%s] %s"
+  print(msg:format(session_id, msg_type, msg_value))
+  if msg_type == "option" then
+    local state = msg_value:sub(1, 1) ~= "!" and 1 or 0
+    local option_name = state == 1 and msg_value or msg_value:sub(2)
+    local state_label = api:get_state_label(session_id, option_name, state == 1)
+    if state_label and state_label ~= "" then
+      print(string.format("lua > updated option: %s = %d // %s", option_name, state, state_label))
+    end
+  end
+end
+
+-- init function
+-- @return nil
+-- @usage call api:setup, api:initialize, api:start_maintenance，api:set_notification_handler
+local function init()
+  local traits = RimeTraits()
+  print('initializing...')
+  traits.app_name = "rime_api_console.lua"
+  traits.shared_data_dir = "./shared"
+  traits.user_data_dir = "./user"
+  traits.prebuilt_data_dir = "./shared"
+  traits.distribution_name = "rime_api_console"
+  traits.distribution_code_name = "rime_api_console"
+  traits.distribution_version = "1.0.0"
+  traits.log_dir = "./log"
+  -- print(traits)
+  if not os.mkdir then
+    -- check system is windows or unix-like
+    local is_windows = package.config:sub(1, 1) == '\\'
+    local mkdir_cmd = is_windows and "md " or "mkdir -p "
+    os.execute(mkdir_cmd .. traits.shared_data_dir)
+    os.execute(mkdir_cmd .. traits.user_data_dir)
+    os.execute(mkdir_cmd .. traits.log_dir)
+  else
+    os.mkdir(traits.shared_data_dir)
+    os.mkdir(traits.user_data_dir)
+    os.mkdir(traits.log_dir)
+  end
+  api:setup(traits)
+  api:set_notification_handler(on_message)
+  api:initialize(traits)
+  if api:start_maintenance(true) then
+    api:join_maintenance_thread()
+  end
+end
+--- print status info
+--- @param status RimeStatus
+--- @return nil
+local function print_status(status)
+  local msg = string.format("schema: %s / %s", status.schema_id, status.schema_name)
+  print(msg)
+  msg = "status: "
+  local disabled = status.is_disabled == 1 and " disabled" or "";
+  local composing = status.is_composing == 1 and " composing" or "";
+  local ascii_mode = status.is_ascii_mode == 1 and " ascii_mode" or "";
+  local full_shape = status.is_full_shape == 1 and " full_shape" or "";
+  local simplified = status.is_simplified == 1 and " simplified" or "";
+  msg = msg .. disabled .. composing .. ascii_mode .. full_shape .. simplified
+  print(msg)
+end
+
+--- print composition preedit with selection and cursor
+--- @param comp RimeComposition
+--- @return nil
+local function print_composition(comp)
+  local preedit = comp.preedit
+  if not preedit or preedit == "" then
+    return
+  end
+  local len = #preedit + 1
+  local start = comp.sel_start + 1
+  local end_ = comp.sel_end + 1
+  local cursor = comp.cursor_pos + 1
+  local msg = ""
+  for i = 1, len + 1 do
+    if start < end_ then
+      if i == start then msg = msg .. "["
+      elseif i == end_ then msg = msg .. "]"
+      end
+    end
+    if i == cursor then msg = msg .. "|" end
+    if i < len then msg = msg .. preedit:sub(i, i) end
+  end
+  print(msg)
+end
+
+--- print candidate menu
+--- @param menu RimeMenu
+--- @return nil
+local function print_menu(menu)
+  if menu.num_candidates == 0 then return end
+  print(string.format("page: %d%s (of size %d)",
+    menu.page_no + 1,
+    menu.is_last_page == 1 and "$" or " ",
+    menu.page_size))
+  for i = 1, menu.num_candidates do
+    local highlight = i == menu.highlighted_candidate_index
+    print(string.format("%d. %s%s%s%s", i + 1,
+      highlight and "[" or " ",
+      menu.candidates[i].text,
+      highlight and "] " or " ",
+      menu.candidates[i].comment ~= "" and menu.candidates[i].comment or ""))
+  end
+end
+
+--- print context info
+--- @param ctx RimeContext
+--- @return nil
+local function print_context(ctx)
+  if ctx.composition.length > 0 or ctx.menu.num_candidates > 0 then
+    print_composition(ctx.composition)
+  else
+    print("(not composing)")
+  end
+  print_menu(ctx.menu)
+end
+
+--- RimeCommit instance
+--- @type RimeCommit
+local commit = RimeCommit()
+--- RimeContext instance
+--- @type RimeContext
+local context = RimeContext()
+--- RimeStatus instance
+--- @type RimeStatus
+local status = RimeStatus()
+
+--- print session info
+--- @param session_id RimeSessionId
+--- @return nil
+local function print_session(session_id)
+  if api:get_commit(session_id, commit) then
+    print("Commit text:", commit.text)
+  end
+  if api:get_status(session_id, status) then
+    print_status(status)
+  end
+  if api:get_context(session_id, context) then
+    print_context(context)
+  end
+end
+
+--- execute special commands
+--- @param input string
+--- @return boolean true if executed, false otherwise
+local function execute_special_command(session_id, input)
+  if input:match("^select schema ") then
+    local schema_id = input:sub(15)
+    print("select schema: ", schema_id)
+    if not api:select_schema(session_id, schema_id) then
+      print("cannot select schema: " .. schema_id)
+    end
+    return true
+  elseif input:match("^set option ") then
+    local value = input:sub(12)[1]~='!'
+    print("set option ", input:sub(12), value and "on" or "off")
+    api:set_option(session_id, input:sub(12), value)
+    return true
+  elseif input:match("^select candidate ") then
+    local index = tonumber(input:sub(18))
+    print("select candidate " .. tostring(index) .. " [indexed from 1]")
+    if not api:select_candidate(session_id, index - 1) then
+      print("cannot select candidate " .. tostring(index))
+    else
+      print_session(session_id)
+    end
+    return true
+  elseif input:match("^print candidate list") then
+    if api:get_context(session_id, context) then
+      if context.menu.num_candidates == 0 then print("no candidates")
+      else print_menu(context.menu) end
+    else
+      print("failed to get context")
+    end
+    return true
+  elseif input:match("^delete on current page ") then
+    local index = tonumber(input:sub(24))
+    print("delete on current page", index)
+    if not api:delete_candidate_on_current_page(session_id, index - 1) then
+      print("failed to delete index " .. tostring(index) .. " on current page")
+    else print_session(session_id) end
+    return true
+  elseif input:match("^delete ") then
+    local index = tonumber(input:sub(8))
+    print("delete "..tostring(index).." [indexed from 1]")
+    if not api:delete_candidate(session_id, index - 1)  then
+      print("failed to delete index " .. tostring(index))
+    else print_session(session_id) end
+    return true
+  elseif input == "print schema list" then
+    local lst = RimeSchemaList()
+    if api:get_schema_list(lst) then
+      for i = 1, lst.size do
+        --print(lst.list[i])
+        print(lst.list[i].schema_id, lst.list[i].name)
+      end
+    end
+    return true
+  end
+  return false
+end
+
+--- continue flag
+local continue = true
+--- main loop
+--- @return nil
+local function main()
+  init()
+  local session_id = api:create_session()
+  if not api:select_schema(session_id, "luna_pinyin") then
+    print("Failed to select schema luna_pinyin")
+  end
+  local ret, str = api:get_current_schema(session_id, 256)
+  if not ret then 
+    print("Failed to get current schema")
+  else
+    print("Current schema:", str)
+  end
+  print("ready")
+  print("---------------------------------------------")
+
+  while continue do
+    local input = io.read()
+    --print("Input:", input)
+    if input == "exit" then
+      continue = false
+      break
+    elseif input == "reload" then
+      api:cleanup_all_sessions()
+      api:finalize()
+      input = ""
+      main()
+    end
+    if not execute_special_command(session_id, input) then
+      if api:simulate_key_sequence(session_id, input) then
+        print_session(session_id)
+      end
+    end
+  end
+  print("distroying session..." .. string.format("0x%x", session_id))
+  api:destroy_session(session_id)
+  api:finalize()
+end
+
+main()
+if package.config:sub(1, 1) == '\\' and cp then
+  local cpu = set_console_codepage(cp)
+  print("restored console codepage:", cp, "from", cpu)
+end
