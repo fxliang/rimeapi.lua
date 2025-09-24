@@ -153,7 +153,7 @@ local function print_menu(menu)
     menu.page_size))
   for i = 1, menu.num_candidates do
     local highlight = i == menu.highlighted_candidate_index
-    print(string.format("%d. %s%s%s%s", i + 1,
+    print(string.format("%d. %s%s%s%s", i,
       highlight and "[" or " ",
       menu.candidates[i].text,
       highlight and "] " or " ",
