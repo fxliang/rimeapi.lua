@@ -21,17 +21,38 @@ jobs:
   build-ubuntu:
     runs-on: ubuntu-latest
     steps:
+
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: setup build tools
+        run: |
+          pushd librime
+          ./action-install-linux.sh
+          sudo apt install -y ninja-build
+          popd
+
+      - name: prepare librime
+        env:
+          CMAKE_GENERATOR: Ninja
+        run: |
+          pushd librime
+          make && sudo make install
+          popd
+
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           actions-cache-folder: '.xmake-cache'
-      - name: Install librime-dev
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y librime-dev
+
       - name: build rimeapi.lua
         id: build_rimeapi_lua
         run: xmake -y
+
+      - name: test
+        run: |
+          ./rimeapi.app ./api_test.lua
+          ./rimeapi.app ./levers_api_test.lua
 
   build-windows:
     runs-on: windows-latest
