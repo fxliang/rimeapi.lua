@@ -305,6 +305,8 @@ namespace RimeCandidateReg {
   };
 }
 
+std::string strzbool(bool b) { return b ? "true" : "false"; }
+
 namespace RimeMenuReg {
   using T = RimeMenu;
   int raw_make(lua_State *L) {
@@ -317,7 +319,7 @@ namespace RimeMenuReg {
     std::string repr = "{\n";
     repr += "  page_size=" + std::to_string(t.page_size) + ", \n";
     repr += "  page_no=" + std::to_string(t.page_no) + ", \n";
-    repr += "  is_last_page=" + std::to_string(t.is_last_page) + ", \n";
+    repr += "  is_last_page=" + strzbool(t.is_last_page) + ", \n";
     repr += "  highlighted_candidate_index=" + std::to_string(t.highlighted_candidate_index) + ", \n";
     repr += "  num_candidates=" + std::to_string(t.num_candidates) + ", \n";
     repr += "  select_keys=\"" + std::string(t.select_keys ? t.select_keys : "") + std::string(", \n");
@@ -429,13 +431,13 @@ namespace RimeStatusReg {
       repr += "  schema_id=\"" + std::string(t->schema_id) + "\", \n";
     if (t->schema_name)
       repr += "  schema_name=\"" + std::string(t->schema_name) + "\", \n";
-    repr += "  is_disabled=" + std::to_string(t->is_disabled) + ", \n";
-    repr += "  is_composing=" + std::to_string(t->is_composing) + ", \n";
-    repr += "  is_ascii_mode=" + std::to_string(t->is_ascii_mode) + ", \n";
-    repr += "  is_full_shape=" + std::to_string(t->is_full_shape) + ", \n";
-    repr += "  is_simplified=" + std::to_string(t->is_simplified) + ", \n";
-    repr += "  is_traditional=" + std::to_string(t->is_traditional) + ", \n";
-    repr += "  is_ascii_punct=" + std::to_string(t->is_ascii_punct) + " \n}";
+    repr += "  is_disabled=" + strzbool(t->is_disabled) + ", \n";
+    repr += "  is_composing=" + strzbool(t->is_composing) + ", \n";
+    repr += "  is_ascii_mode=" + strzbool(t->is_ascii_mode) + ", \n";
+    repr += "  is_full_shape=" + strzbool(t->is_full_shape) + ", \n";
+    repr += "  is_simplified=" + strzbool(t->is_simplified) + ", \n";
+    repr += "  is_traditional=" + strzbool(t->is_traditional) + ", \n";
+    repr += "  is_ascii_punct=" + strzbool(t->is_ascii_punct) + " \n}";
     lua_pushstring(L, repr.c_str());
     return 1;
   }
