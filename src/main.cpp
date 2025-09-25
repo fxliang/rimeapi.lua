@@ -1033,11 +1033,6 @@ namespace RimeApiReg {
   DECLARE_FUNC_NAME_VAR(get_staging_dir_s)
   DECLARE_FUNC_NAME_VAR(get_sync_dir_s)
 
-  // Proto functions (deprecated)
-  DECLARE_FUNC_NAME_VAR(commit_proto)
-  DECLARE_FUNC_NAME_VAR(context_proto)
-  DECLARE_FUNC_NAME_VAR(status_proto)
-
   // Thread-safe storage for notification callbacks keyed by context pointer.
   // Each entry stores the lua_State* where the Lua callback lives and the
   // registry reference for the function.
@@ -1242,6 +1237,7 @@ namespace RimeApiReg {
       lua_pushboolean(L, result);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, const char*, RimeConfig*) {
+      // schema_open / config_open / user_config_open
       const char* config_name = luaL_checkstring(L, 2);
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 3);
       Bool result = func_ptr(config_name, config);
@@ -1344,13 +1340,6 @@ namespace RimeApiReg {
       const char* file_name = luaL_checkstring(L, 2);
       const char* version_key = luaL_checkstring(L, 3);
       Bool result = func_ptr(file_name, version_key);
-      lua_pushboolean(L, result);
-      return 1;
-    } else if constexpr SIGNATURE_CHECK(Bool, const char*, RimeConfig*) {
-      // user_config_open or schema_open handled earlier; keep for safety
-      const char* id = luaL_checkstring(L, 2);
-      RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 3);
-      Bool result = func_ptr(id, config);
       lua_pushboolean(L, result);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeSessionId) {
@@ -1456,7 +1445,7 @@ namespace RimeApiReg {
       lua_pushboolean(L, result);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*) {
-      // config_update_signature(config, signer) or config_clear / create_map variations (fallback)
+      // config_update_signature / config_load_string / config_clear / create_list / create_map
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
       const char* arg = luaL_checkstring(L, 3);
       Bool result = func_ptr(config, arg);
@@ -1481,13 +1470,6 @@ namespace RimeApiReg {
       RimeConfigIterator* it = smart_shared_ptr_todata<RimeConfigIterator>(L, 2);
       func_ptr(it);
       return 0;
-    } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*) {
-      // config_load_string(config, yaml) OR config_create_list/map/clear which share same signature
-      RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
-      const char* s = luaL_checkstring(L, 3);
-      Bool result = func_ptr(config, s);
-      lua_pushboolean(L, result);
-      return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, Bool) {
       // config_set_bool
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
@@ -1526,13 +1508,6 @@ namespace RimeApiReg {
       const char* key = luaL_checkstring(L, 3);
       RimeConfig* value = smart_shared_ptr_todata<RimeConfig>(L, 4);
       Bool result = func_ptr(config, key, value);
-      lua_pushboolean(L, result);
-      return 1;
-    } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, const char*, size_t) {
-      // set_input(session_id, input) - note: actual signature is Bool(RimeSessionId, const char*) in header; keep for safety
-      RimeSessionId session_id = luaL_checkinteger(L, 2);
-      const char* s = luaL_checkstring(L, 3);
-      Bool result = func_ptr(session_id, s, 0);
       lua_pushboolean(L, result);
       return 1;
     } else if constexpr SIGNATURE_CHECK(size_t, RimeConfig*, const char*) {
@@ -1604,43 +1579,6 @@ namespace RimeApiReg {
         RimeStringSlice slice = func_ptr(session_id, option_name, state, abbreviated);
         LuaType<RimeStringSlice>::pushdata(L, slice);
         return 1;
-      } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, char*, size_t) {
-        if (lua_gettop(L) != 3) {
-          luaL_error(L, "Expected 2 arguments for \"%s\", (%s, %s) is required", func_name, "RimeSessionId", "buffer_size(integer)");
-          return 0;
-        }
-        RimeSessionId session_id = luaL_checkinteger(L, 2);
-        size_t buffer_size = luaL_checkinteger(L, 3);
-        std::unique_ptr<char[]> buffer = std::make_unique<char[]>(buffer_size);
-        Bool result = func_ptr(session_id, buffer.get(), buffer_size);
-        if (result) {
-          lua_pushboolean(L, true);
-          lua_pushstring(L, buffer.get());
-          return 2;
-        } else {
-          lua_pushboolean(L, false);
-          return 1;
-        }
-      } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, char*, size_t, size_t*) {
-        // commit_proto, context_proto, status_proto
-        if (lua_gettop(L) != 4) {
-          luaL_error(L, "Expected 3 arguments for \"%s\", (%s, %s, %s) is required", func_name, "RimeSessionId", "buffer_size(integer)", "size_ptr(lightuserdata)");
-          return 0;
-        }
-        RimeSessionId session_id = luaL_checkinteger(L, 2);
-        size_t buffer_size = luaL_checkinteger(L, 3);
-        std::unique_ptr<char[]> buffer = std::make_unique<char[]>(buffer_size);
-        size_t* size_ptr = (size_t*)lua_touserdata(L, 4);
-        Bool result = func_ptr(session_id, buffer.get(), buffer_size, size_ptr);
-        if (result) {
-          lua_pushboolean(L, true);
-          lua_pushstring(L, buffer.get());
-          if (size_ptr) lua_pushinteger(L, (lua_Integer)(*size_ptr));
-          return size_ptr ? 3 : 2;
-        } else {
-          lua_pushboolean(L, false);
-          return 1;
-        }
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, Bool) {
       // change_page(session_id, Bool)
       RimeSessionId session_id = luaL_checkinteger(L, 2);
@@ -1797,9 +1735,6 @@ namespace RimeApiReg {
     {"user_config_open", WRAP_API_FUNC(user_config_open)},
 
     // Proto API (deprecated)
-    {"commit_proto", WRAP_API_FUNC(commit_proto)},
-    {"context_proto", WRAP_API_FUNC(context_proto)},
-    {"status_proto", WRAP_API_FUNC(status_proto)},
 
     // State and version
     {"get_state_label", WRAP_API_FUNC(get_state_label)},
