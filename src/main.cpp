@@ -1535,7 +1535,7 @@ namespace RimeApiReg {
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, const char*, char*, size_t) {
       // get_property(session_id, prop, buffer, buffer_size)
       if (lua_gettop(L) != 4) {
-  luaL_error(L, "Expected 3 arguments for \"%s\", (%s, %s, %s) is required", func_name, "RimeSessionId", "string", "buffer_size(integer)");
+        luaL_error(L, "Expected 3 arguments for \"%s\", (%s, %s, %s) is required", func_name, "RimeSessionId", "string", "buffer_size(integer)");
         return 0;
       }
       RimeSessionId session_id = luaL_checkinteger(L, 2);
@@ -1554,7 +1554,7 @@ namespace RimeApiReg {
     } else if constexpr SIGNATURE_CHECK(void, char*, size_t) {
       // functions that fill a char* buffer (get_*_dir_s etc.)
       if (lua_gettop(L) != 2) {
-  luaL_error(L, "Expected 1 argument for \"%s\", (%s) is required", func_name, "buffer_size(integer)");
+        luaL_error(L, "Expected 1 argument for \"%s\", (%s) is required", func_name, "buffer_size(integer)");
         return 0;
       }
       size_t buffer_size = luaL_checkinteger(L, 2);
@@ -1562,23 +1562,23 @@ namespace RimeApiReg {
       func_ptr(buffer.get(), buffer_size);
       lua_pushstring(L, buffer.get());
       return 1;
-      } else if constexpr SIGNATURE_CHECK(const char*, RimeSessionId, const char*, Bool) {
-        // const char* get_state_label(RimeSessionId, const char*, Bool)
-        RimeSessionId session_id = luaL_checkinteger(L, 2);
-        const char* option_name = luaL_checkstring(L, 3);
-        Bool state = lua_toboolean(L, 4);
-        const char* s = func_ptr(session_id, option_name, state);
-        if (s) lua_pushstring(L, s); else lua_pushnil(L);
-        return 1;
-      } else if constexpr SIGNATURE_CHECK(RimeStringSlice, RimeSessionId, const char*, Bool, Bool) {
-        // RimeStringSlice get_state_label_abbreviated(RimeSessionId, const char*, Bool, Bool)
-        RimeSessionId session_id = luaL_checkinteger(L, 2);
-        const char* option_name = luaL_checkstring(L, 3);
-        Bool state = lua_toboolean(L, 4);
-        Bool abbreviated = lua_toboolean(L, 5);
-        RimeStringSlice slice = func_ptr(session_id, option_name, state, abbreviated);
-        LuaType<RimeStringSlice>::pushdata(L, slice);
-        return 1;
+    } else if constexpr SIGNATURE_CHECK(const char*, RimeSessionId, const char*, Bool) {
+      // const char* get_state_label(RimeSessionId, const char*, Bool)
+      RimeSessionId session_id = luaL_checkinteger(L, 2);
+      const char* option_name = luaL_checkstring(L, 3);
+      Bool state = lua_toboolean(L, 4);
+      const char* s = func_ptr(session_id, option_name, state);
+      if (s) lua_pushstring(L, s); else lua_pushnil(L);
+      return 1;
+    } else if constexpr SIGNATURE_CHECK(RimeStringSlice, RimeSessionId, const char*, Bool, Bool) {
+      // RimeStringSlice get_state_label_abbreviated(RimeSessionId, const char*, Bool, Bool)
+      RimeSessionId session_id = luaL_checkinteger(L, 2);
+      const char* option_name = luaL_checkstring(L, 3);
+      Bool state = lua_toboolean(L, 4);
+      Bool abbreviated = lua_toboolean(L, 5);
+      RimeStringSlice slice = func_ptr(session_id, option_name, state, abbreviated);
+      LuaType<RimeStringSlice>::pushdata(L, slice);
+      return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, Bool) {
       // change_page(session_id, Bool)
       RimeSessionId session_id = luaL_checkinteger(L, 2);
