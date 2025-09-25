@@ -207,6 +207,18 @@ int unified_set(lua_State *L) {
 #define SMART_GET(T, member) unified_get<T, decltype(T::member), &T::member>
 #define SMART_SET(T, member) unified_set<T, decltype(T::member), &T::member>
 
+// Specialized getter for boolean-like members where the C type may be int/Bool
+template<typename T, typename MemberType, MemberType T::*member>
+int unified_get_bool(lua_State *L) {
+  T* t = smart_shared_ptr_todata<T>(L, 1);
+  if (!t)
+    lua_pushnil(L);
+  else
+    lua_pushboolean(L, !!(t->*member));
+  return 1;
+}
+#define SMART_GET_BOOL(T, member) unified_get_bool<T, decltype(T::member), &T::member>
+
 template <typename T, typename = std::void_t<>>
 struct has_data_size : std::false_type {};
 
@@ -347,7 +359,7 @@ namespace RimeMenuReg {
   static const luaL_Reg vars_get[] = {
     {"page_size", SMART_GET(T, page_size)},
     {"page_no", SMART_GET(T, page_no)},
-    {"is_last_page", SMART_GET(T, is_last_page)},
+    {"is_last_page", SMART_GET_BOOL(T, is_last_page)},
     {"highlighted_candidate_index", SMART_GET(T, highlighted_candidate_index)},
     {"num_candidates", SMART_GET(T, num_candidates)},
     {"candidates", get_candidates},
@@ -438,13 +450,13 @@ namespace RimeStatusReg {
   static const luaL_Reg vars_get[] = {
     {"schema_id", SMART_GET(T, schema_id)},
     {"schema_name", SMART_GET(T, schema_name)},
-    {"is_disabled", SMART_GET(T, is_disabled)},
-    {"is_composing", SMART_GET(T, is_composing)},
-    {"is_ascii_mode", SMART_GET(T, is_ascii_mode)},
-    {"is_full_shape", SMART_GET(T, is_full_shape)},
-    {"is_simplified", SMART_GET(T, is_simplified)},
-    {"is_traditional", SMART_GET(T, is_traditional)},
-    {"is_ascii_punct", SMART_GET(T, is_ascii_punct)},
+    {"is_disabled", SMART_GET_BOOL(T, is_disabled)},
+    {"is_composing", SMART_GET_BOOL(T, is_composing)},
+    {"is_ascii_mode", SMART_GET_BOOL(T, is_ascii_mode)},
+    {"is_full_shape", SMART_GET_BOOL(T, is_full_shape)},
+    {"is_simplified", SMART_GET_BOOL(T, is_simplified)},
+    {"is_traditional", SMART_GET_BOOL(T, is_traditional)},
+    {"is_ascii_punct", SMART_GET_BOOL(T, is_ascii_punct)},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = {

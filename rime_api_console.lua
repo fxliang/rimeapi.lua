@@ -58,11 +58,11 @@ local function on_message(_, session_id, msg_type, msg_value)
   local msg = "lua > message: ["..PFORMAT.."] [%s] %s"
   print(msg:format(session_id, msg_type, msg_value))
   if msg_type == "option" then
-    local state = msg_value:sub(1, 1) ~= "!" and 1 or 0
-    local option_name = state == 1 and msg_value or msg_value:sub(2)
-    local state_label = api:get_state_label(session_id, option_name, state == 1)
+    local state = msg_value:sub(1, 1) ~= "!"
+    local option_name = state and msg_value or msg_value:sub(2)
+    local state_label = api:get_state_label(session_id, option_name, state)
     if state_label and state_label ~= "" then
-      print(string.format("lua > updated option: %s = %d // %s", option_name, state, state_label))
+      print(string.format("lua > updated option: %s = %s // %s", option_name, state, state_label))
     end
   end
 end
@@ -108,11 +108,11 @@ local function print_status(status)
   local msg = string.format("schema: %s / %s", status.schema_id, status.schema_name)
   print(msg)
   msg = "status: "
-  local disabled = status.is_disabled == 1 and " disabled" or "";
-  local composing = status.is_composing == 1 and " composing" or "";
-  local ascii_mode = status.is_ascii_mode == 1 and " ascii_mode" or "";
-  local full_shape = status.is_full_shape == 1 and " full_shape" or "";
-  local simplified = status.is_simplified == 1 and " simplified" or "";
+  local disabled = status.is_disabled == true and " disabled" or "";
+  local composing = status.is_composing == true and " composing" or "";
+  local ascii_mode = status.is_ascii_mode == true and " ascii_mode" or "";
+  local full_shape = status.is_full_shape == true and " full_shape" or "";
+  local simplified = status.is_simplified == true and " simplified" or "";
   msg = msg .. disabled .. composing .. ascii_mode .. full_shape .. simplified
   print(msg)
 end
@@ -149,7 +149,7 @@ local function print_menu(menu)
   if menu.num_candidates == 0 then return end
   print(string.format("page: %d%s (of size %d)",
     menu.page_no + 1,
-    menu.is_last_page == 1 and "$" or " ",
+    menu.is_last_page == true and "$" or " ",
     menu.page_size))
   for i = 1, menu.num_candidates do
     local highlight = i == menu.highlighted_candidate_index
