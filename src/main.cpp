@@ -1248,37 +1248,34 @@ namespace RimeApiReg {
       lua_pushboolean(L, result);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, int*) {
+      // config_get_int or config_get_bool
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
       const char* key = luaL_checkstring(L, 3);
       int value = 0;
       Bool result = func_ptr(config, key, &value);
-      const auto push_func = [&](const auto& value) {
-        if (!result) {
-          lua_pushnil(L);
-          return;
-        }
-        if (strcmp(func_name, "config_get_int") == 0)
-          lua_pushinteger(L, value);
-        else
-          lua_pushboolean(L, value);
-      };
       lua_pushboolean(L, result);
-      push_func(value);
+      if (!result)
+        lua_pushnil(L);
+      else if (strcmp(func_name, "config_get_int") == 0)
+        lua_pushinteger(L, value);
+      else
+        lua_pushboolean(L, value);
       return 2;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, double*) {
+      // config_get_double
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
       const char* key = luaL_checkstring(L, 3);
       std::unique_ptr<double> value = std::make_unique<double>();
       Bool result = func_ptr(config, key, value.get());
+      lua_pushboolean(L, !!result);
       if (result) {
-        lua_pushboolean(L, true);
         lua_pushnumber(L, *value);
-        return 2;
       } else {
-        lua_pushboolean(L, false);
-        return 1;
+        lua_pushnil(L);
       }
+      return 2;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, char*, size_t) {
+      // config_get_string
       if (lua_gettop(L) < 3) {
         // 1st param is function pointer
         luaL_error(L, "Expected 3 arguments for \"%s\", (%s, %s, %s) is required", func_name, type_name_sptr<RimeConfig>(), "string", "integer");
@@ -1290,14 +1287,13 @@ namespace RimeApiReg {
       if (lua_gettop(L) == 4) buffer_size = luaL_checkinteger(L, 4);
       std::unique_ptr<char[]> buffer = std::make_unique<char[]>(buffer_size);
       Bool result = func_ptr(config, key, buffer.get(), buffer_size);
+      lua_pushboolean(L, !!result);
       if (result) {
-        lua_pushboolean(L, true);
         lua_pushstring(L, buffer.get());
-        return 2;
       } else {
-        lua_pushboolean(L, false);
-        return 1;
+        lua_pushnil(L);
       }
+      return 2;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeCommit*) {
       RimeCommit* commit = smart_shared_ptr_todata<RimeCommit>(L, 2);
       Bool result = func_ptr(commit);
