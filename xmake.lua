@@ -11,7 +11,7 @@ local is_termux = prefix and prefix:match("com%.termux") ~= nil
 -- Get the lua engine configuration
 local lua_engine = get_config("lua_engine") or "lua"
 -- add_requires of lua_engine
-add_requires(lua_engine)
+add_requires(lua_engine, {system = false})
 
 -------------------------------------------------------------------------------
 --- core object lib
@@ -68,13 +68,32 @@ rule('common_rules')
       target:add('cxflags', '-O2')
     end
   end)
+  after_load(function (target)
+    local pkgs = target:pkgs()
+    local pkg = pkgs and pkgs[lua_engine]
+    if pkg and pkg.installdir then
+      local installdir = pkg:installdir()
+      if installdir and os.isdir(installdir) then
+        target:set('lua_bin_dir', path.join(installdir, 'bin'))
+      end
+    end
+  end)
 
 rule('copy_after_build')
   -- copy executable to project dir
   after_build(function (target)
     print('copy ' .. target:targetfile() .. ' to ' .. os.projectdir())
     os.cp(target:targetfile(), os.projectdir())
-    if is_plat('windows') then
+    if is_plat('windows', 'mingw') then
       os.trycp(is_arch('x64') and 'lib64\\rime.dll' or 'lib\\rime.dll', os.projectdir())
+    end
+    if target:name() == 'rimeapi' then
+      local bin_path = target:get('lua_bin_dir')
+      if bin_path and os.isdir(bin_path) then
+        local lua_bin_name = is_plat('windows', 'mingw') and (lua_engine .. '.exe') or lua_engine
+        local lua_path = path.join(bin_path, lua_bin_name)
+        print('copy ' .. lua_path .. ' to ' .. os.projectdir())
+        os.trycp(lua_path, os.projectdir())
+      end
     end
   end)
