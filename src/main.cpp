@@ -1486,13 +1486,14 @@ namespace RimeApiReg {
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSchemaList*) {
       // get_schema_list
       RimeSchemaList* list = smart_shared_ptr_todata<RimeSchemaList>(L, 2);
-      Bool result = func_ptr(list);
+      if (list) RIMEAPI->free_schema_list(list); // ensure no leak
+      Bool result = list ? func_ptr(list) : false;
       lua_pushboolean(L, result);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeSchemaList*) {
       // free_schema_list
       RimeSchemaList* list = smart_shared_ptr_todata<RimeSchemaList>(L, 2);
-      func_ptr(list);
+      if (list) func_ptr(list);
       return 0;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, char*, size_t) {
       // get_current_schema(session_id, buffer, buffer_size)
