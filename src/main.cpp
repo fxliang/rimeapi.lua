@@ -26,11 +26,25 @@ using namespace std;
 
 static std::unordered_set<RimeConfig*> cfg_borrowed_set;
 static std::unordered_set<RimeSchemaList*> schemalist_borrowed_set;
+static std::mutex cfg_borrowed_mutex;
+static std::mutex schemalist_borrowed_mutex;
 
 #define IS_OBJ_BORROWED(obj, set) (obj && set.find(obj) != set.end())
+// Thread-safe check wrappers
+static inline bool is_config_borrowed(RimeConfig* cfg) {
+  if (!cfg) return false;
+  std::lock_guard<std::mutex> lk(cfg_borrowed_mutex);
+  return cfg_borrowed_set.find(cfg) != cfg_borrowed_set.end();
+}
+static inline bool is_schemalist_borrowed(RimeSchemaList* list) {
+  if (!list) return false;
+  std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
+  return schemalist_borrowed_set.find(list) != schemalist_borrowed_set.end();
+}
 
 static inline void set_config_borrowed(RimeConfig* cfg, bool borrowed) {
   if (!cfg) return;
+  std::lock_guard<std::mutex> lk(cfg_borrowed_mutex);
   if (borrowed)
     cfg_borrowed_set.insert(cfg);
   else
@@ -174,9 +188,12 @@ struct LuaType<std::shared_ptr<T>> {
 #define CHECKT(t) (std::is_same<T, t>::value)
       // free the underlying resource if needed, not free the shared_ptr itself
       if constexpr CHECKT(RimeConfig){
-        if (!IS_OBJ_BORROWED(p->get(), cfg_borrowed_set))
+        if (!is_config_borrowed(p->get()))
           RIMEAPI->config_close(p->get());
-        cfg_borrowed_set.erase(p->get());
+        {
+          std::lock_guard<std::mutex> lk(cfg_borrowed_mutex);
+          cfg_borrowed_set.erase(p->get());
+        }
       } else if constexpr CHECKT(RimeConfigIterator) {
         RIMEAPI->config_end(p->get());
       } else if constexpr CHECKT(RimeStatus) {
@@ -186,10 +203,13 @@ struct LuaType<std::shared_ptr<T>> {
       } else if constexpr CHECKT(RimeCommit) {
         RIMEAPI->free_commit(p->get());
       } else if constexpr CHECKT(RimeSchemaList) {
-        const auto deleter = (schemalist_borrowed_set.find(p->get()) != schemalist_borrowed_set.end()) ?
-          RIMELEVERSAPI->schema_list_destroy : RIMEAPI->free_schema_list;
+        bool borrowed = is_schemalist_borrowed(p->get());
+        const auto deleter = borrowed ? RIMELEVERSAPI->schema_list_destroy : RIMEAPI->free_schema_list;
         deleter(p->get());
-        schemalist_borrowed_set.erase(p->get());
+        {
+          std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
+          schemalist_borrowed_set.erase(p->get());
+        }
       }
 #undef CHECKT
       p->~PtrType();
@@ -565,7 +585,7 @@ namespace RimeConfigReg {
     } else {
       const char *new_config_id = lua_tostring(L, 2);
       if (RimeApi *api = RIMEAPI) {
-        bool was_borrowed = IS_OBJ_BORROWED(t, cfg_borrowed_set);
+        bool was_borrowed = is_config_borrowed(t);
         if (!was_borrowed)
           api->config_close(t);
         Bool ok = api->config_open(new_config_id, t);
@@ -580,7 +600,7 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     bool ret = false;
     if (t) {
-      if (IS_OBJ_BORROWED(t, cfg_borrowed_set)) {
+      if (is_config_borrowed(t)) {
         ret = false;
       } else {
         ret = RIMEAPI->config_close(t);
@@ -1310,7 +1330,7 @@ namespace RimeApiReg {
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 3);
       Bool result = false;
       if (config) {
-        bool was_borrowed = IS_OBJ_BORROWED(config, cfg_borrowed_set);
+        bool was_borrowed = is_config_borrowed(config);
         if (!was_borrowed)
           api->config_close(config);
         result = func_ptr(config_name, config);
@@ -1383,7 +1403,7 @@ namespace RimeApiReg {
       Bool ret = false;
       if (strcmp(func_name, "config_close") == 0) {
         if (config) {
-          if (!IS_OBJ_BORROWED(config, cfg_borrowed_set)) {
+          if (!is_config_borrowed(config)) {
             ret = func_ptr(config);
             cfg_borrowed_set.erase(config);
           }
@@ -1684,11 +1704,12 @@ namespace RimeApiReg {
   #define WRAP_API_FUNC(func) call_function_pointer<&T::func, func##_func_name>
 
   int raw_make(lua_State *L) {
-    T *t = RIMEAPI;
-  // 将API指针包装到shared_ptr中进行管理
-  // 当最后一个 shared_ptr 被析构时，自动清理所有 Lua-side 通知回调（但不删除原始指针）
-    auto api_ptr = std::shared_ptr<T>(t,
-        [](T*){ clear_all_notification_handlers_internal(); });
+    auto api_ptr = std::shared_ptr<T>(RIMEAPI,
+        [](T* t){
+        clear_all_notification_handlers_internal();
+        t->cleanup_all_sessions();
+        t->finalize();
+        });
     LuaType<std::shared_ptr<T>>::pushdata(L, api_ptr);
     return 1;
   }
@@ -2341,15 +2362,27 @@ int main(int argc, char* argv[]) {
   // if argv is empty, use ./test_rime.lua else use argv[1] as script path
   std::string script = argc > 1 ?
     std::string(argv[1]) : std::string("./test_rime.lua");
+
+  const auto cleanup_levers_on_exit = [&]() {
+    std::unordered_set<void*> tmp;
+    std::lock_guard<std::mutex> lk(levers_settings_mutex);
+    tmp.swap(levers_settings_owned);
+    auto api = RIMELEVERSAPI;
+    if (!api) return;
+    for (auto p : tmp) {
+      api->custom_settings_destroy(reinterpret_cast<RimeCustomSettings*>(p));
+    }
+  };
+  int ret = 0;
   if (luaL_dofile(L, script.c_str())) {
     const char *msg = lua_tostring(L, -1);
     printf("Error: %s\n", msg);
     lua_pop(L, 1);  // remove error message
-    SetConsoleOutputCodePage(codepage);
-    return 1;
+    ret = 1;
   }
-  fflush(stdout);
+  lua_close(L);
+  cleanup_levers_on_exit();
   SetConsoleOutputCodePage(codepage);
-  return 0;
+  return ret;
 }
 #endif
