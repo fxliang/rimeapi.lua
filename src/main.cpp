@@ -20,6 +20,8 @@ inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
 
 using namespace std;
 
+#define RIMELEVERSAPI ((RimeLeversApi*)rime_get_api()->find_module("levers")->get_api())
+#define RIMEAPI rime_get_api()
 // record if a RimeConfig* is borrowed from levers_api
 // unordered_map is included in lua_templates.h
 static std::unordered_map<RimeConfig*, bool> cfg_ownership_map;
@@ -125,24 +127,24 @@ struct LuaType<std::shared_ptr<T>> {
         // only if the cfg->ptr is not borrowed from levers api, config_close is ok
         if (it != cfg_ownership_map.end()) {
           if(!it->second)
-            rime_get_api()->config_close(p->get());
+            RIMEAPI->config_close(p->get());
           cfg_ownership_map.erase(p->get());
         }
       } else if constexpr CHECKT(RimeConfigIterator) {
-        rime_get_api()->config_end(p->get());
+        RIMEAPI->config_end(p->get());
       } else if constexpr CHECKT(RimeStatus) {
-        rime_get_api()->free_status(p->get());
+        RIMEAPI->free_status(p->get());
       } else if constexpr CHECKT(RimeContext) {
-        rime_get_api()->free_context(p->get());
+        RIMEAPI->free_context(p->get());
       } else if constexpr CHECKT(RimeCommit) {
-        rime_get_api()->free_commit(p->get());
+        RIMEAPI->free_commit(p->get());
       } else if constexpr CHECKT(RimeSchemaList) {
         auto it = schema_list_ownership_map.find(p->get());
         if (it != schema_list_ownership_map.end()) {
           if (!it->second)
-            rime_get_api()->free_schema_list(p->get());
+            RIMEAPI->free_schema_list(p->get());
           else
-            ((RimeLeversApi*)rime_get_api()->find_module("levers")->get_api())->schema_list_destroy(p->get());
+            RIMELEVERSAPI->schema_list_destroy(p->get());
           schema_list_ownership_map.erase(p->get());
         }
       }
@@ -519,7 +521,7 @@ namespace RimeConfigReg {
       lua_pushboolean(L, false);
     } else {
       const char *new_config_id = lua_tostring(L, 2);
-      if (RimeApi *api = rime_get_api()) {
+      if (RimeApi *api = RIMEAPI) {
         api->config_close(t);
         lua_pushboolean(L, !!api->config_open(new_config_id, t));
       } else
@@ -531,7 +533,7 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     bool ret = false;
     if (t) {
-      ret = rime_get_api()->config_close(t);
+      ret = RIMEAPI->config_close(t);
     }
     lua_pushboolean(L, ret);
     return 1;
@@ -540,7 +542,7 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     int value = 0;
-    if (rime_get_api()->config_get_int(t, key, &value))
+    if (RIMEAPI->config_get_int(t, key, &value))
       lua_pushinteger(L, value);
     else
       lua_pushnil(L);
@@ -553,7 +555,7 @@ namespace RimeConfigReg {
     if (lua_gettop(L) > 2)
       buffer_size = luaL_checkinteger(L, 3);
     std::unique_ptr<char[]> buffer = std::make_unique<char[]>(buffer_size);
-    if (rime_get_api()->config_get_string(t, key, buffer.get(), buffer_size))
+    if (RIMEAPI->config_get_string(t, key, buffer.get(), buffer_size))
       lua_pushstring(L, buffer.get());
     else
       lua_pushnil(L);
@@ -563,7 +565,7 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     Bool value = false;
-    if (rime_get_api()->config_get_bool(t, key, &value))
+    if (RIMEAPI->config_get_bool(t, key, &value))
       lua_pushboolean(L, (bool)value);
     else
       lua_pushnil(L);
@@ -573,7 +575,7 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     double value = 0.0;
-    if (rime_get_api()->config_get_double(t, key, &value))
+    if (RIMEAPI->config_get_double(t, key, &value))
       lua_pushnumber(L, value);
     else
       lua_pushnil(L);
@@ -582,7 +584,7 @@ namespace RimeConfigReg {
   static int get_cstring(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
-    const char* value = rime_get_api()->config_get_cstring(t, key);
+    const char* value = RIMEAPI->config_get_cstring(t, key);
     if (value)
       lua_pushstring(L, value);
     else
@@ -593,7 +595,7 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     int value = luaL_checkinteger(L, 3);
-    bool ret = rime_get_api()->config_set_int(t, key, value);
+    bool ret = RIMEAPI->config_set_int(t, key, value);
     lua_pushboolean(L, ret);
     return 1;
   }
@@ -601,7 +603,7 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     const char* value = luaL_checkstring(L, 3);
-    bool ret = rime_get_api()->config_set_string(t, key, value);
+    bool ret = RIMEAPI->config_set_string(t, key, value);
     lua_pushboolean(L, ret);
     return 1;
   }
@@ -609,7 +611,7 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     bool value = lua_toboolean(L, 3);
-    bool ret = rime_get_api()->config_set_bool(t, key, value);
+    bool ret = RIMEAPI->config_set_bool(t, key, value);
     lua_pushboolean(L, ret);
     return 1;
   }
@@ -617,7 +619,7 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     double value = luaL_checknumber(L, 3);
-    bool ret = rime_get_api()->config_set_double(t, key, value);
+    bool ret = RIMEAPI->config_set_double(t, key, value);
     lua_pushboolean(L, ret);
     return 1;
   }
@@ -688,7 +690,7 @@ namespace RimeSchemaListItemReg {
     {
       std::string info_txt = "";
       RimeSchemaInfo* info = (RimeSchemaInfo*)(t.reserved);
-      RimeLeversApi* api = (RimeLeversApi*)rime_get_api()->find_module("levers")->get_api();
+      RimeLeversApi* api = RIMELEVERSAPI;
       if (info && api) {
         if (const char* name = api->get_schema_name(info))
           info_txt += "  name = \"" + std::string(name) + "\"";
@@ -1611,7 +1613,7 @@ namespace RimeApiReg {
   #define WRAP_API_FUNC(func) call_function_pointer<&T::func, func##_func_name>
 
   int raw_make(lua_State *L) {
-    T *t = rime_get_api();
+    T *t = RIMEAPI;
   // 将API指针包装到shared_ptr中进行管理
   // 当最后一个 shared_ptr 被析构时，自动清理所有 Lua-side 通知回调（但不删除原始指针）
     auto api_ptr = std::shared_ptr<T>(t,
@@ -1793,7 +1795,7 @@ namespace RimeSchemaInfoReg {
     T* si = smart_shared_ptr_todata<T>(L); \
     if (!si) lua_pushnil(L); \
     else { \
-      RimeLeversApi* api = (RimeLeversApi*)rime_get_api()->find_module("levers")->get_api(); \
+      RimeLeversApi* api = RIMELEVERSAPI; \
       if (api) { \
         const char* s = api->get_schema_##prop(si); \
         if (s) lua_pushstring(L, s); else lua_pushnil(L); \
@@ -1810,7 +1812,7 @@ namespace RimeSchemaInfoReg {
     if (!si) {
       lua_pushnil(L);
     } else {
-      RimeLeversApi* api = (RimeLeversApi*)rime_get_api()->find_module("levers")->get_api();
+      RimeLeversApi* api = RIMELEVERSAPI;
       if (api) {
         const char* s = api->get_schema_id(si);
         if (s) lua_pushstring(L, s); else lua_pushnil(L);
@@ -1824,7 +1826,7 @@ namespace RimeSchemaInfoReg {
     if (!si) {
       lua_pushnil(L);
     } else {
-      RimeLeversApi* api = (RimeLeversApi*)rime_get_api()->find_module("levers")->get_api();
+      RimeLeversApi* api = RIMELEVERSAPI;
       if (api) {
         const char* s = api->get_schema_version(si);
         if (s) lua_pushstring(L, s); else lua_pushnil(L);
@@ -1838,7 +1840,7 @@ namespace RimeSchemaInfoReg {
     if (!si) {
       lua_pushnil(L);
     } else {
-      RimeLeversApi* api = (RimeLeversApi*)rime_get_api()->find_module("levers")->get_api();
+      RimeLeversApi* api = RIMELEVERSAPI;
       if (api) {
         const char* s = api->get_schema_file_path(si);
         if (s) lua_pushstring(L, s); else lua_pushnil(L);
@@ -2119,7 +2121,7 @@ namespace RimeLeversApiReg {
 #define WRAP_API_FUNC_LEVERS(func) call_function_pointer<&T::func, func##_func_name>
 
   int raw_make(lua_State *L) {
-    T *t = (RimeLeversApi*)rime_get_api()->find_module("levers")->get_api();
+    T *t = RIMELEVERSAPI;
     // 将API指针包装到shared_ptr中进行管理
     auto api_ptr = std::shared_ptr<T>(t, [](T*){});
     LuaType<std::shared_ptr<T>>::pushdata(L, api_ptr);
