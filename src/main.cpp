@@ -20,6 +20,9 @@ inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
 
 using namespace std;
 
+// record if a RimeConfig* is borrowed from levers_api
+// unordered_map is included in lua_templates.h
+static std::unordered_map<RimeConfig*, bool> cfg_ownership_map;
 // 为char*添加LuaType特化
 template<>
 struct LuaType<char*> {
@@ -113,11 +116,17 @@ struct LuaType<std::shared_ptr<T>> {
     printf("%s::%s referenced\n", demangled_name.c_str(), __func__);
 #endif
     PtrType *p = (PtrType*)luaL_checkudata(L, 1, type()->name());
-    if (p) {
+    if (p && p->get()) {
 #define CHECKT(t) (std::is_same<T, t>::value)
       // free the underlying resource if needed, not free the shared_ptr itself
       if constexpr CHECKT(RimeConfig){
-        rime_get_api()->config_close(p->get());
+        auto it = cfg_ownership_map.find(p->get());
+        // only if the cfg->ptr is not borrowed from levers api, config_close is ok
+        if (it != cfg_ownership_map.end()) {
+          if(!it->second)
+            rime_get_api()->config_close(p->get());
+          cfg_ownership_map.erase(p->get());
+        }
       } else if constexpr CHECKT(RimeConfigIterator) {
         rime_get_api()->config_end(p->get());
       } else if constexpr CHECKT(RimeStatus) {
@@ -2009,6 +2018,7 @@ namespace RimeLeversApiReg {
       RimeCustomSettings* settings = lua_to_custom_settings(L, 2);
       RimeConfig* cfg = smart_shared_ptr_todata<RimeConfig>(L, 3);
       Bool ret = func_ptr(settings, cfg);
+      if (ret) cfg_ownership_map[cfg] = true;
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSwitcherSettings*, RimeSchemaList*) {
