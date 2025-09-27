@@ -1321,6 +1321,7 @@ namespace RimeApiReg {
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, RimeStatus*) {
       RimeSessionId session_id = luaL_checkinteger(L, 2);
       RimeStatus* status = smart_shared_ptr_todata<RimeStatus>(L, 3);
+      if (status) RIMEAPI->free_status(status); // ensure no leak
       Bool result = func_ptr(session_id, status);
       lua_pushboolean(L, result);
       return 1;
@@ -1389,12 +1390,14 @@ namespace RimeApiReg {
       return 2;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeCommit*) {
       RimeCommit* commit = smart_shared_ptr_todata<RimeCommit>(L, 2);
+      if (commit) RIMEAPI->free_commit(commit); // ensure no leak
       Bool result = func_ptr(commit);
       lua_pushboolean(L, result);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, RimeContext*) {
       RimeSessionId session_id = luaL_checkinteger(L, 2);
       RimeContext* context = smart_shared_ptr_todata<RimeContext>(L, 3);
+      if (context) RIMEAPI->free_context(context); // ensure no leak
       Bool result = func_ptr(session_id, context);
       lua_pushboolean(L, result);
       return 1;
