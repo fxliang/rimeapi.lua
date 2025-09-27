@@ -37,6 +37,46 @@ static inline void set_config_borrowed(RimeConfig* cfg, bool borrowed) {
     cfg_borrowed_set.erase(cfg);
 }
 
+static std::unordered_set<void*> levers_settings_owned;
+static std::mutex levers_settings_mutex;
+
+static inline void register_levers_settings(void* ptr) {
+  if (!ptr) return;
+  std::lock_guard<std::mutex> lk(levers_settings_mutex);
+  levers_settings_owned.insert(ptr);
+}
+
+static inline void mark_levers_settings_destroyed(void* ptr) {
+  if (!ptr) return;
+  std::lock_guard<std::mutex> lk(levers_settings_mutex);
+  levers_settings_owned.erase(ptr);
+}
+
+static inline void destroy_levers_settings(void* ptr) {
+  if (!ptr) return;
+  bool should_destroy = false;
+  {
+    std::lock_guard<std::mutex> lk(levers_settings_mutex);
+    auto it = levers_settings_owned.find(ptr);
+    if (it != levers_settings_owned.end()) {
+      levers_settings_owned.erase(it);
+      should_destroy = true;
+    }
+  }
+  if (should_destroy) {
+    if (auto api = RIMELEVERSAPI) api->custom_settings_destroy(reinterpret_cast<RimeCustomSettings*>(ptr));
+  }
+}
+
+// Generic helper: wrap a levers-owned raw pointer into a shared_ptr with
+// a deleter that calls destroy_levers_settings, then push to Lua.
+template<typename U>
+static void push_levers_owned(lua_State* L, U* ptr) {
+  if (!ptr) { lua_pushnil(L); return; }
+  register_levers_settings(ptr);
+  auto sptr = std::shared_ptr<U>(ptr, [](U* p) { destroy_levers_settings(reinterpret_cast<void*>(p)); });
+  LuaType<std::shared_ptr<U>>::pushdata(L, sptr);
+}
 // 为char*添加LuaType特化
 template<>
 struct LuaType<char*> {
@@ -1797,6 +1837,11 @@ namespace RimeApiReg {
 
 namespace RimeCustomSettingsReg {
   using T = RimeCustomSettings;
+  // Helper: wrap a raw RimeCustomSettings* returned by levers API into
+  // a std::shared_ptr with the custom deleter and push to Lua stack.
+  static void push_from_raw(lua_State* L, RimeCustomSettings* settings) {
+    push_levers_owned<RimeCustomSettings>(L, settings);
+  }
   static const luaL_Reg funcs[] = {
     {"RimeCustomSettings", raw_make<T>},
     {nullptr, nullptr}
@@ -1810,6 +1855,10 @@ namespace RimeCustomSettingsReg {
 
 namespace RimeSwitcherSettingsReg {
   using T = RimeSwitcherSettings;
+  // Helper similar to RimeCustomSettingsReg::push_from_raw
+  static void push_from_raw(lua_State* L, RimeSwitcherSettings* settings) {
+    push_levers_owned<RimeSwitcherSettings>(L, settings);
+  }
   static const luaL_Reg funcs[] = {
     {"RimeSwitcherSettings", raw_make<T>},
     {nullptr, nullptr}
@@ -1976,24 +2025,26 @@ namespace RimeLeversApiReg {
       const char* param1 = luaL_checkstring(L, 2);
       const char* param2 = luaL_checkstring(L, 3);
       RimeCustomSettings* settings = func_ptr(param1, param2);
-      if (settings) {
-        auto sptr = std::shared_ptr<RimeCustomSettings>(settings, [](RimeCustomSettings*){});
-        LuaType<std::shared_ptr<RimeCustomSettings>>::pushdata(L, sptr);
-      } else
-        lua_pushnil(L);
+      RimeCustomSettingsReg::push_from_raw(L, settings);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeCustomSettings*) {
       RimeCustomSettings* settings = lua_to_custom_settings(L, 2);
       func_ptr(settings);
+      if (settings && strcmp(func_name, "custom_settings_destroy") == 0) {
+        mark_levers_settings_destroyed(settings);
+        if (luaL_testudata(L, 2, LuaType<std::shared_ptr<RimeCustomSettings>>::type()->name())) {
+          auto &sp = LuaType<std::shared_ptr<RimeCustomSettings>>::todata(L, 2);
+          sp.reset();
+        } else if (luaL_testudata(L, 2, LuaType<std::shared_ptr<RimeSwitcherSettings>>::type()->name())) {
+          auto &sp = LuaType<std::shared_ptr<RimeSwitcherSettings>>::todata(L, 2);
+          sp.reset();
+        }
+      }
       return 0;
     } else if constexpr SIGNATURE_CHECK(RimeSwitcherSettings*, ) {
       // switcher_settings_init()
       RimeSwitcherSettings* settings = func_ptr();
-      if (settings) {
-        auto sptr = std::shared_ptr<RimeSwitcherSettings>(settings, [](RimeSwitcherSettings*){});
-        LuaType<std::shared_ptr<RimeSwitcherSettings>>::pushdata(L, sptr);
-      } else
-        lua_pushnil(L);
+      RimeSwitcherSettingsReg::push_from_raw(L, settings);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeSwitcherSettings*) {
       RimeSwitcherSettings* settings = smart_shared_ptr_todata<RimeSwitcherSettings>(L, 2);
