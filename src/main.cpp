@@ -23,6 +23,7 @@ using namespace std;
 // record if a RimeConfig* is borrowed from levers_api
 // unordered_map is included in lua_templates.h
 static std::unordered_map<RimeConfig*, bool> cfg_ownership_map;
+static std::unordered_map<RimeSchemaList*, bool> schema_list_ownership_map;
 // 为char*添加LuaType特化
 template<>
 struct LuaType<char*> {
@@ -135,6 +136,15 @@ struct LuaType<std::shared_ptr<T>> {
         rime_get_api()->free_context(p->get());
       } else if constexpr CHECKT(RimeCommit) {
         rime_get_api()->free_commit(p->get());
+      } else if constexpr CHECKT(RimeSchemaList) {
+        auto it = schema_list_ownership_map.find(p->get());
+        if (it != schema_list_ownership_map.end()) {
+          if (!it->second)
+            rime_get_api()->free_schema_list(p->get());
+          else
+            ((RimeLeversApi*)rime_get_api()->find_module("levers")->get_api())->schema_list_destroy(p->get());
+          schema_list_ownership_map.erase(p->get());
+        }
       }
 #undef CHECKT
       p->~PtrType();
@@ -735,14 +745,9 @@ namespace RimeSchemaListReg {
     }
     return 1;
   }
-  int raw_make(lua_State *L) {
-    T t;
-    LuaType<T>::pushdata(L, t);
-    return 1;
-  }
 
   static const luaL_Reg funcs[] = {
-    {"RimeSchemaList", raw_make},
+    {"RimeSchemaList", raw_make<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = {
@@ -2026,6 +2031,8 @@ namespace RimeLeversApiReg {
       RimeSwitcherSettings* settings = smart_shared_ptr_todata<RimeSwitcherSettings>(L, 2);
       RimeSchemaList* list = smart_shared_ptr_todata<RimeSchemaList>(L, 3);
       Bool ret = func_ptr(settings, list);
+      if (ret)
+        schema_list_ownership_map[list] = true;
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeSchemaList*) {
