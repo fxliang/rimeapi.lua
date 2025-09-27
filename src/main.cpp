@@ -286,6 +286,21 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
 					return 0;
 					});
 			lua_setfield(L, -2, "__gc");
+      // push a __index function to get id by .id
+      lua_pushcfunction(L, [](lua_State *L)->int {
+          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, RIME_SESSION_MT);
+          const char* key = luaL_checkstring(L, 2);
+          if (strcmp(key, "id") == 0) {
+            if (s && s->id)
+              lua_pushinteger(L, (lua_Integer)s->id);
+            else
+              lua_pushnil(L);
+            return 1;
+          }
+          lua_pushnil(L);
+          return 1;
+        });
+      lua_setfield(L, -2, "__index");
 			lua_pushlightuserdata(L, (void*)RIME_SESSION_MT);
 			lua_setfield(L, -2, "type");
 		}
