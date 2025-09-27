@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <mutex>
 #include <filesystem>
+#include <unordered_set>
 #ifdef _WIN32
 #include <windows.h>
 inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = CP_UTF8) {
@@ -22,10 +23,20 @@ using namespace std;
 
 #define RIMELEVERSAPI ((RimeLeversApi*)rime_get_api()->find_module("levers")->get_api())
 #define RIMEAPI rime_get_api()
-// record if a RimeConfig* is borrowed from levers_api
-// unordered_map is included in lua_templates.h
-static std::unordered_map<RimeConfig*, bool> cfg_ownership_map;
-static std::unordered_map<RimeSchemaList*, bool> schema_list_ownership_map;
+
+static std::unordered_set<RimeConfig*> cfg_borrowed_set;
+static std::unordered_set<RimeSchemaList*> schemalist_borrowed_set;
+
+#define IS_OBJ_BORROWED(obj, set) (obj && set.find(obj) != set.end())
+
+static inline void set_config_borrowed(RimeConfig* cfg, bool borrowed) {
+  if (!cfg) return;
+  if (borrowed)
+    cfg_borrowed_set.insert(cfg);
+  else
+    cfg_borrowed_set.erase(cfg);
+}
+
 // 为char*添加LuaType特化
 template<>
 struct LuaType<char*> {
@@ -123,13 +134,9 @@ struct LuaType<std::shared_ptr<T>> {
 #define CHECKT(t) (std::is_same<T, t>::value)
       // free the underlying resource if needed, not free the shared_ptr itself
       if constexpr CHECKT(RimeConfig){
-        auto it = cfg_ownership_map.find(p->get());
-        // only if the cfg->ptr is not borrowed from levers api, config_close is ok
-        if (it != cfg_ownership_map.end()) {
-          if(!it->second)
-            RIMEAPI->config_close(p->get());
-          cfg_ownership_map.erase(p->get());
-        }
+        if (!IS_OBJ_BORROWED(p->get(), cfg_borrowed_set))
+          RIMEAPI->config_close(p->get());
+        cfg_borrowed_set.erase(p->get());
       } else if constexpr CHECKT(RimeConfigIterator) {
         RIMEAPI->config_end(p->get());
       } else if constexpr CHECKT(RimeStatus) {
@@ -139,14 +146,10 @@ struct LuaType<std::shared_ptr<T>> {
       } else if constexpr CHECKT(RimeCommit) {
         RIMEAPI->free_commit(p->get());
       } else if constexpr CHECKT(RimeSchemaList) {
-        auto it = schema_list_ownership_map.find(p->get());
-        if (it != schema_list_ownership_map.end()) {
-          if (!it->second)
-            RIMEAPI->free_schema_list(p->get());
-          else
-            RIMELEVERSAPI->schema_list_destroy(p->get());
-          schema_list_ownership_map.erase(p->get());
-        }
+        const auto deleter = (schemalist_borrowed_set.find(p->get()) != schemalist_borrowed_set.end()) ?
+          RIMELEVERSAPI->schema_list_destroy : RIMEAPI->free_schema_list;
+        deleter(p->get());
+        schemalist_borrowed_set.erase(p->get());
       }
 #undef CHECKT
       p->~PtrType();
@@ -522,8 +525,12 @@ namespace RimeConfigReg {
     } else {
       const char *new_config_id = lua_tostring(L, 2);
       if (RimeApi *api = RIMEAPI) {
-        api->config_close(t);
-        lua_pushboolean(L, !!api->config_open(new_config_id, t));
+        bool was_borrowed = IS_OBJ_BORROWED(t, cfg_borrowed_set);
+        if (!was_borrowed)
+          api->config_close(t);
+        Bool ok = api->config_open(new_config_id, t);
+        set_config_borrowed(t, was_borrowed && !ok);
+        lua_pushboolean(L, !!ok);
       } else
         lua_pushboolean(L, false);
     }
@@ -533,7 +540,12 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     bool ret = false;
     if (t) {
-      ret = RIMEAPI->config_close(t);
+      if (IS_OBJ_BORROWED(t, cfg_borrowed_set)) {
+        ret = false;
+      } else {
+        ret = RIMEAPI->config_close(t);
+        set_config_borrowed(t, false);
+      }
     }
     lua_pushboolean(L, ret);
     return 1;
@@ -1256,7 +1268,16 @@ namespace RimeApiReg {
       // schema_open / config_open / user_config_open
       const char* config_name = luaL_checkstring(L, 2);
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 3);
-      Bool result = func_ptr(config_name, config);
+      Bool result = false;
+      if (config) {
+        bool was_borrowed = IS_OBJ_BORROWED(config, cfg_borrowed_set);
+        if (!was_borrowed)
+          api->config_close(config);
+        result = func_ptr(config_name, config);
+        set_config_borrowed(config, was_borrowed && !result);
+      } else {
+        result = func_ptr(config_name, config);
+      }
       lua_pushboolean(L, result);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, int*) {
@@ -1319,7 +1340,17 @@ namespace RimeApiReg {
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*) {
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
-      auto ret = func_ptr(config);
+      Bool ret = false;
+      if (strcmp(func_name, "config_close") == 0) {
+        if (config) {
+          if (!IS_OBJ_BORROWED(config, cfg_borrowed_set)) {
+            ret = func_ptr(config);
+            cfg_borrowed_set.erase(config);
+          }
+        }
+      } else {
+        ret = func_ptr(config);
+      }
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool) {
@@ -2025,7 +2056,7 @@ namespace RimeLeversApiReg {
       RimeCustomSettings* settings = lua_to_custom_settings(L, 2);
       RimeConfig* cfg = smart_shared_ptr_todata<RimeConfig>(L, 3);
       Bool ret = func_ptr(settings, cfg);
-      if (ret) cfg_ownership_map[cfg] = true;
+      if (ret) set_config_borrowed(cfg, true);
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSwitcherSettings*, RimeSchemaList*) {
@@ -2034,7 +2065,7 @@ namespace RimeLeversApiReg {
       RimeSchemaList* list = smart_shared_ptr_todata<RimeSchemaList>(L, 3);
       Bool ret = func_ptr(settings, list);
       if (ret)
-        schema_list_ownership_map[list] = true;
+        schemalist_borrowed_set.insert(list);
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeSchemaList*) {
