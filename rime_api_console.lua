@@ -268,8 +268,8 @@ local function main()
   if not api:select_schema(session_id, "luna_pinyin") then
     print("Failed to select schema luna_pinyin")
   end
-  local ret, str = api:get_current_schema(session_id, 256)
-  if not ret then 
+  local str = api:get_current_schema(session_id, 256)
+  if not str then
     print("Failed to get current schema")
   else
     print("Current schema:", str)

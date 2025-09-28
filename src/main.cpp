@@ -1407,27 +1407,25 @@ namespace RimeApiReg {
       const char* key = luaL_checkstring(L, 3);
       int value = 0;
       Bool result = func_ptr(config, key, &value);
-      lua_pushboolean(L, result);
       if (!result)
         lua_pushnil(L);
       else if (strcmp(func_name, "config_get_int") == 0)
         lua_pushinteger(L, value);
       else
-        lua_pushboolean(L, value);
-      return 2;
+        lua_pushboolean(L, !!value);
+      return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, double*) {
       // config_get_double
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
       const char* key = luaL_checkstring(L, 3);
       std::unique_ptr<double> value = std::make_unique<double>();
       Bool result = func_ptr(config, key, value.get());
-      lua_pushboolean(L, !!result);
       if (result) {
         lua_pushnumber(L, *value);
       } else {
         lua_pushnil(L);
       }
-      return 2;
+      return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, char*, size_t) {
       // config_get_string
       if (lua_gettop(L) < 3) {
@@ -1441,13 +1439,12 @@ namespace RimeApiReg {
       if (lua_gettop(L) == 4) buffer_size = luaL_checkinteger(L, 4);
       std::unique_ptr<char[]> buffer = std::make_unique<char[]>(buffer_size);
       Bool result = func_ptr(config, key, buffer.get(), buffer_size);
-      lua_pushboolean(L, !!result);
       if (result) {
         lua_pushstring(L, buffer.get());
       } else {
         lua_pushnil(L);
       }
-      return 2;
+      return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeCommit*) {
       RimeCommit* commit = smart_shared_ptr_todata<RimeCommit>(L, 2);
       if (commit) RIMEAPI->free_commit(commit); // ensure no leak
@@ -1563,20 +1560,18 @@ namespace RimeApiReg {
             , func_name, "RimeSessionId", "buffer_size(integer)", "RimeSessionId");
         return 0;
       }
-  RimeSessionId session_id = RimeSession_todata(L, 2);
+      RimeSessionId session_id = RimeSession_todata(L, 2);
       size_t buffer_size = 256;
       if (lua_gettop(L) >= 3)
         buffer_size = luaL_checkinteger(L, 3);
       std::unique_ptr<char[]> buffer = std::make_unique<char[]>(buffer_size);
       Bool result = func_ptr(session_id, buffer.get(), buffer_size);
       if (result) {
-        lua_pushboolean(L, true);
         lua_pushstring(L, buffer.get());
-        return 2;
       } else {
         lua_pushboolean(L, false);
-        return 1;
       }
+      return 1;
     } else if constexpr SIGNATURE_CHECK(size_t, RimeSessionId) {
       // get_caret_pos(session_id)
       RimeSessionId session_id = RimeSession_todata(L, 2);
