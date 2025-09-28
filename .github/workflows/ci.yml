@@ -26,20 +26,56 @@ jobs:
         with:
           submodules: recursive
 
+      - name: compute librime short hash
+        id: librime-hash
+        run: |
+          pushd librime
+          short=$(git rev-parse --short HEAD)
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          popd
+
+      - name: cache librime build
+        id: cache-librime
+        uses: actions/cache@v4
+        with:
+          path: librime/librime_1.14.0-1_amd64.deb
+          key: ${{ runner.os }}-librime-${{ steps.librime-hash.outputs.short }}
+          restore-keys: |
+            ${{ runner.os }}-librime-
+
       - name: setup build tools
         run: |
           pushd librime
           ./action-install-linux.sh
-          sudo apt install -y ninja-build
+          sudo apt install -y ninja-build checkinstall
           popd
 
       - name: prepare librime
+        id: prepare-librime
+        if: steps.cache-librime.outputs.cache-hit != 'true'
         env:
           CMAKE_GENERATOR: Ninja
         run: |
           pushd librime
-          make && sudo make install
+          make
+          sudo checkinstall \
+            --pkgname=librime \
+            --pkgversion=1.14.0 \
+            --pkgrelease=1 \
+            --arch=amd64 \
+            --pkglicense=BSD \
+            --maintainer="fx.liang@outlook.com" \
+            --requires="libc6, libgcc-s1, libstdc++6, libgflags2.2, libgoogle-glog0v6t64, libleveldb1d, libmarisa0, libopencc1.1, libsnappy1v5, libunwind8" \
+            --nodoc \
+            --install=no \
+            --default \
+            --backup=no
           popd
+
+      - name: install librime
+        if: steps.cache-librime.outputs.cache-hit == 'true' || steps.prepare-librime.outcome == 'success'
+        working-directory: librime
+        run: sudo apt install -y ./librime_1.14.0-1_amd64.deb
 
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
