@@ -272,20 +272,20 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
   void *u = lua_newuserdata(L, sizeof(RimeSessionStruct));
   RimeSessionStruct *s = new(u) RimeSessionStruct();
   s->id = id;
-	const auto ensure_rime_session_mt = [](lua_State *L) {
-		luaL_getmetatable(L, RIME_SESSION_MT);
-		if (lua_isnil(L, -1)) {
-			lua_pop(L, 1);
-			luaL_newmetatable(L, RIME_SESSION_MT);
-			lua_pushcfunction(L, [](lua_State *L)->int {
-					RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, RIME_SESSION_MT);
-					if (s && s->id) {
-						if (auto api = RIMEAPI) api->destroy_session(s->id);
-						s->id = 0;
-					}
-					return 0;
-					});
-			lua_setfield(L, -2, "__gc");
+  const auto ensure_rime_session_mt = [](lua_State *L) {
+    luaL_getmetatable(L, RIME_SESSION_MT);
+    if (lua_isnil(L, -1)) {
+      lua_pop(L, 1);
+      luaL_newmetatable(L, RIME_SESSION_MT);
+      lua_pushcfunction(L, [](lua_State *L)->int {
+          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, RIME_SESSION_MT);
+          if (s && s->id) {
+            if (auto api = RIMEAPI) api->destroy_session(s->id);
+            s->id = 0;
+          }
+          return 0;
+          });
+      lua_setfield(L, -2, "__gc");
       // push a __index function to get id by .id
       lua_pushcfunction(L, [](lua_State *L)->int {
           RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, RIME_SESSION_MT);
@@ -301,11 +301,11 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
           return 1;
         });
       lua_setfield(L, -2, "__index");
-			lua_pushlightuserdata(L, (void*)RIME_SESSION_MT);
-			lua_setfield(L, -2, "type");
-		}
-		lua_pop(L, 1);
-	};
+      lua_pushlightuserdata(L, (void*)RIME_SESSION_MT);
+      lua_setfield(L, -2, "type");
+    }
+    lua_pop(L, 1);
+  };
   ensure_rime_session_mt(L);
   luaL_setmetatable(L, RIME_SESSION_MT);
 }
@@ -1605,7 +1605,7 @@ namespace RimeApiReg {
       return 0;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, RimeCandidateListIterator*, int) {
       // candidate_list_from_index(session_id, iterator, index)
-      RimeSessionId session_id = luaL_checkinteger(L, 2);
+      RimeSessionId session_id = RimeSession_todata(L, 2);
       RimeCandidateListIterator* it = smart_shared_ptr_todata<RimeCandidateListIterator>(L, 3);
       int index = luaL_checkinteger(L, 4);
       Bool result = func_ptr(session_id, it, index);
@@ -1731,7 +1731,7 @@ namespace RimeApiReg {
       return 1;
     } else if constexpr SIGNATURE_CHECK(const char*, RimeSessionId, const char*, Bool) {
       // const char* get_state_label(RimeSessionId, const char*, Bool)
-      RimeSessionId session_id = luaL_checkinteger(L, 2);
+      RimeSessionId session_id = RimeSession_todata(L, 2);
       const char* option_name = luaL_checkstring(L, 3);
       Bool state = lua_toboolean(L, 4);
       const char* s = func_ptr(session_id, option_name, state);
@@ -1739,7 +1739,7 @@ namespace RimeApiReg {
       return 1;
     } else if constexpr SIGNATURE_CHECK(RimeStringSlice, RimeSessionId, const char*, Bool, Bool) {
       // RimeStringSlice get_state_label_abbreviated(RimeSessionId, const char*, Bool, Bool)
-      RimeSessionId session_id = luaL_checkinteger(L, 2);
+      RimeSessionId session_id = RimeSession_todata(L, 2);
       const char* option_name = luaL_checkstring(L, 3);
       Bool state = lua_toboolean(L, 4);
       Bool abbreviated = lua_toboolean(L, 5);
@@ -1748,7 +1748,7 @@ namespace RimeApiReg {
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, Bool) {
       // change_page(session_id, Bool)
-      RimeSessionId session_id = luaL_checkinteger(L, 2);
+      RimeSessionId session_id = RimeSession_todata(L, 2);
       Bool val = lua_tointeger(L, 3);
       Bool result = func_ptr(session_id, (Bool)val);
       lua_pushboolean(L, result);
