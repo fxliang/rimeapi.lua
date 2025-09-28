@@ -295,7 +295,7 @@ local function main()
       end
     end
   end
-  print("distroying session..." .. string.format("0x%x", session_id))
+  print("distroying session..." .. string.format("0x%x", session_id.id))
   api:destroy_session(session_id)
   api:finalize()
 end
