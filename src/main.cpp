@@ -1641,19 +1641,12 @@ namespace RimeApiReg {
       RimeConfigIterator* it = smart_shared_ptr_todata<RimeConfigIterator>(L, 2);
       func_ptr(it);
       return 0;
-    } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, Bool) {
-      // config_set_bool
-      RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
-      const char* key = luaL_checkstring(L, 3);
-      Bool val = lua_toboolean(L, 4);
-      Bool result = func_ptr(config, key, val);
-      lua_pushboolean(L, result);
-      return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, int) {
       // config_set_int
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
       const char* key = luaL_checkstring(L, 3);
-      int v = luaL_checkinteger(L, 4);
+      auto v = (strcmp(func_name, "config_set_int") == 0) ?
+        luaL_checkinteger(L, 4) : lua_toboolean(L, 4);
       Bool result = func_ptr(config, key, v);
       lua_pushboolean(L, result);
       return 1;
