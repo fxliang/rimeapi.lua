@@ -2419,10 +2419,28 @@ int main(int argc, char* argv[]) {
   lua_State *L = luaL_newstate();
   luaL_openlibs(L);
   register_rime_bindings(L);
-  // if argv is empty, use ./test_rime.lua else use argv[1] as script path
-  std::string script = argc > 1 ?
-    std::string(argv[1]) : std::string("./test_rime.lua");
-
+  // if argv is empty, use ./test.lua else use argv[1] as script path
+  std::string script = argc > 1 && std::filesystem::exists(argv[1]) ?
+    std::string(argv[1]) : std::string("./test.lua");
+  // add script path's directory to package.path
+  std::filesystem::path sp(script);
+  std::string script_dir = sp.has_parent_path() ? sp.parent_path().string() : ".";
+  lua_getglobal(L, "package");
+  lua_getfield(L, -1, "path");
+  std::string cur_path = lua_tostring(L, -1);
+  cur_path += ";" + script_dir + "/?.lua";
+  lua_pop(L, 1); // remove old path
+  lua_pushstring(L, cur_path.c_str());
+  lua_setfield(L, -2, "path");
+  lua_pop(L, 1); // remove package table
+  lua_newtable(L);
+  lua_pushstring(L, script.c_str());
+  lua_rawseti(L, -2, 0);
+  for (int i = 1; i < argc; ++i) {
+    lua_pushstring(L, argv[i]);
+    lua_rawseti(L, -2, i - 1);
+  }
+  lua_setglobal(L, "arg");
   const auto cleanup_levers_on_exit = [&]() {
     std::unordered_set<void*> tmp;
     std::lock_guard<std::mutex> lk(levers_settings_mutex);

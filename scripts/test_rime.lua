@@ -49,7 +49,7 @@ local function rime_api_test()
     api:join_maintenance_thread()
   end
   local session_id = api:create_session()
-  print("Creating session..." .. string.format("0x%x", session_id))
+  print("Creating session..." .. string.format("0x%x", session_id.id))
 
   local schema_result = api:select_schema(session_id, "luna_pinyin")
   print("Selecting schema luna_pinyin... " .. (schema_result and "succeeded" or "failed"))
