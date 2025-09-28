@@ -19,8 +19,8 @@ To build the shared library, xmake is required. Follow these steps:
 
 ## Files Description
 
-- `api_test.lua`: a rime api test script, use it `rimeapi.app ./api_test.lua`, temp output will be in `api_test` directory
-- `levers_api_test.lua`: a rime levers api test script, use it `rimeapi.app ./levers_api_test.lua`, temp output will be in `levers_api_test` directory
+- `scripts/api_test.lua`: a rime api test script, use it `rimeapi.app ./api_test.lua`, temp output will be in `api_test` directory
+- `scripts/levers_api_test.lua`: a rime levers api test script, use it `rimeapi.app ./levers_api_test.lua`, temp output will be in `levers_api_test` directory
 - `shared`: base yamls from `librime` project, and a yaml `api_test.yaml`
 - `rime_api_console.lua`: a lua script to work like `rime_api_console` of `librime`, use it `rimeapi.app ./rime_api_console.lua` or `lua ./rime_api_console.lua`
 - `get-rime.ps1`: a powershell script tool for getting `librime` for windows/macos
