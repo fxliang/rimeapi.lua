@@ -311,6 +311,10 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
 }
 static RimeSessionId RimeSession_todata(lua_State *L, int idx) {
   if (lua_isnil(L, idx)) return 0;
+  if (lua_isnumber(L, idx)) {
+    lua_Number n = lua_tonumber(L, idx);
+    if (n == (lua_Number)(RimeSessionId)n) return (RimeSessionId)n;
+  }
   if (luaL_testudata(L, idx, RIME_SESSION_MT)) {
     RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, idx, RIME_SESSION_MT);
     return s ? s->id : 0;

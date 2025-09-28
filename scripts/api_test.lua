@@ -447,8 +447,8 @@ print('rime_api:cleanup_stale_sessions passed')
 assert(rime_api:user_config_open("user", config) == true)
 print('rime_api:user_config_open passed')
 ----------------------------------------------------------------
-assert(rime_api:destroy_session(session) == true)
-print('rime_api:destroy_session passed')
+assert(rime_api:destroy_session(session.id) == true)
+print('rime_api:destroy_session by raw RimeSessionId passed')
 ----------------------------------------------------------------
 assert(rime_api:deployer_initialize(traits) == nil)
 print('rime_api:deployer_initialize passed')
