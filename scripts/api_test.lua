@@ -108,13 +108,7 @@ assert(context.composition.cursor_pos == 1)
 assert(context.composition.sel_start == 0)
 assert(context.composition.sel_end == 1)
 print('RimeComposition fields passed')
-local expected_str = [[{
-  preedit="a",
-  length=1,
-  cursor_pos=1,
-  sel_start=0,
-  sel_end=1
-}]]
+local expected_str = '{\n  preedit="a",\n  length=1,\n  cursor_pos=1,\n  sel_start=0,\n  sel_end=1\n}'
 assert(context.composition:__tostring() == expected_str)
 print('RimeComposition:__tostring passed')
 local menu = context.menu
@@ -397,15 +391,7 @@ print('rime_api:get_version passed: \"' .. rime_api:get_version() .. '\"')
 
 assert(rime_api:config_init(config) == true)
 print('rime_api:config_init passed')
-assert(rime_api:config_load_string(config, [[
-a_string: a_string_loaded_from_string
-a_item:
-  - list_item1
-  - list_item2
-  - list_item3
-map_item1: map_item1_value
-map_item2: 233
-]]) == true)
+assert(rime_api:config_load_string(config, 'a_string: a_string_loaded_from_string\na_item:\n  - list_item1\n  - list_item2\n  - list_item3\nmap_item1: map_item1_value\nmap_item2: 233') == true)
 assert(config:get_string("a_string") == "a_string_loaded_from_string")
 print('rime_api:config_load_string passed')
 local item = RimeConfig()
@@ -416,9 +402,7 @@ assert(rime_api:config_set_item(config, "a_item", item) == true)
 assert(rime_api:config_get_string(config, "a_item/@0", 256) == "list_item1_modified")
 print('rime_api:config_set_item passed')
 local config_to_clear = RimeConfig()
-assert(rime_api:config_load_string(config_to_clear, [[
-to_be_cleared: some_value
-]]) == true)
+assert(rime_api:config_load_string(config_to_clear, 'to_be_cleared: some_value') == true)
 assert(config_to_clear:get_string("to_be_cleared") == "some_value")
 assert(rime_api:config_clear(config_to_clear, "to_be_cleared") == true)
 print('rime_api:config_clear passed')
