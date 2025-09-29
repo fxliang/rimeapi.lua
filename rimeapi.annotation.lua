@@ -1,31 +1,32 @@
 ---@class RimeSession
----@field id integer
+---@field id integer -- raw RimeSessionId value
+---@field str string -- pointer format of RimeSessionId
 
 ---@class RimeComposition
----@field length integer
----@field cursor_pos integer
----@field sel_start integer
----@field sel_end integer
----@field preedit string
+---@field length integer -- length of composition
+---@field cursor_pos integer -- cursor position
+---@field sel_start integer  -- select start
+---@field sel_end integer    -- select end
+---@field preedit string     -- preedit string
 ---@field __tostring fun(self: self): string
 
 ---@class RimeCandidate
----@field text string
----@field comment string
+---@field text string  -- text of candidate
+---@field comment string  -- comment of candidate
 ---@field __tostring fun(self: self): string
 
 ---@class RimeMenu
----@field page_size integer
----@field page_no integer
----@field is_last_page boolean
----@field highlighted_candidate_index integer
----@field num_candidates integer
----@field candidates RimeCandidate[]
----@field select_keys string
+---@field page_size integer -- page size
+---@field page_no integer -- page number, 0 base
+---@field is_last_page boolean -- is the current page the last page
+---@field highlighted_candidate_index integer -- highlighted_candidate_index 0 base
+---@field num_candidates integer -- number of candidates
+---@field candidates RimeCandidate[] -- table of candidates
+---@field select_keys string -- select keys string
 ---@field __tostring fun(self: self): string
 
 ---@class RimeCommit
----@field text string
+---@field text string -- text to be committed
 ---@field __tostring fun(self: self): string
 
 ---@class RimeContext
@@ -48,8 +49,8 @@
 
 ---@class RimeCandidateListIterator
 ---@field ptr lightuserdata
----@field index integer
----@field candidate RimeCandidate
+---@field index integer -- index of iterator, 0 base
+---@field candidate RimeCandidate -- candidate of iterator
 
 ---@class RimeConfig
 ---@field reload fun(self: self, config_name: string): boolean
@@ -66,9 +67,9 @@
 ---@field set_double fun(self: self, key: string, value: number): boolean
 
 ---@class RimeConfigIterator
----@field index integer
----@field key string
----@field path string
+---@field index integer -- index of iterator, 0 base
+---@field key string -- key string of iterator
+---@field path string -- path of iterator
 
 ---@class RimeSchemaInfo
 ---@field name string
@@ -179,20 +180,20 @@
 ---@field config_begin_list fun(self: self, iter: RimeConfigIterator, config: RimeConfig, key: string): boolean
 ---@field get_input fun(self: self, session: RimeSession|integer): string
 ---@field get_caret_pos fun(self: self, session: RimeSession|integer): integer
----@field select_candidate fun(self: self, session: RimeSession|integer, index: integer): boolean
+---@field select_candidate fun(self: self, session: RimeSession|integer, index: integer): boolean -- index shall be 0 base
 ---@field get_version fun(self: self): string
 ---@field set_caret_pos fun(self: self, session: RimeSession|integer, pos: integer): nil
----@field select_candidate_on_current_page fun(self: self, session: RimeSession|integer, index: integer): boolean
+---@field select_candidate_on_current_page fun(self: self, session: RimeSession|integer, index: integer): boolean -- index shall be 0 base
 ---@field candidate_list_begin fun(self: self, session: RimeSession|integer, iter: RimeCandidateListIterator): boolean
 ---@field candidate_list_next fun(self: self, iter: RimeCandidateListIterator): boolean
 ---@field candidate_list_end fun(self: self, iter: RimeCandidateListIterator): nil
 ---@field user_config_open fun(self: self, config_id: string, config: RimeConfig): boolean
----@field candidate_list_from_index fun(self: self, session: RimeSession|integer, iter: RimeCandidateListIterator, start_index: integer): boolean
+---@field candidate_list_from_index fun(self: self, session: RimeSession|integer, iter: RimeCandidateListIterator, start_index: integer): boolean -- index shall be 0 base
 ---@field get_prebuilt_data_dir fun(self: self): string
 ---@field get_staging_dir fun(self: self): string
 ---@field get_state_label fun(self: self, session: RimeSession|integer, option: string, state: boolean): string
----@field delete_candidate fun(self: self, session: RimeSession|integer, index: integer): boolean
----@field delete_candidate_on_current_page fun(self: self, session: RimeSession|integer, index: integer): boolean
+---@field delete_candidate fun(self: self, session: RimeSession|integer, index: integer): boolean -- index shall be 0 base
+---@field delete_candidate_on_current_page fun(self: self, session: RimeSession|integer, index: integer): boolean -- index shall be 0 base
 ---@field get_state_label_abbreviated fun(self: self, session: RimeSession|integer, option: string, state: boolean, abbreviated: boolean): RimeStringSlice
 ---@field set_input fun(self: self, session: RimeSession|integer, input: string): boolean
 ---@field get_shared_data_dir_s fun(self: self, buffer_size: integer|nil): string
@@ -200,8 +201,8 @@
 ---@field get_sync_dir_s fun(self: self, buffer_size: integer|nil): string
 ---@field get_staging_dir_s fun(self: self, buffer_size: integer|nil): string
 ---@field get_prebuilt_data_dir_s fun(self: self, buffer_size: integer|nil): string
----@field highlight_candidate fun(self: self, session: RimeSession|integer, index: integer): boolean
----@field highlight_candidate_on_current_page fun(self: self, session: RimeSession|integer, index: integer): boolean
+---@field highlight_candidate fun(self: self, session: RimeSession|integer, index: integer): boolean -- index shall be 0 base
+---@field highlight_candidate_on_current_page fun(self: self, session: RimeSession|integer, index: integer): boolean -- index shall be 0 base
 ---@field change_page fun(self: self, session: RimeSession|integer, backward: boolean): boolean
 
 ---@class RimeCustomSettings

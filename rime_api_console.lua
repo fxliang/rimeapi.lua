@@ -45,9 +45,6 @@ if package.config:sub(1, 1) == '\\' then
 end
 local api = RimeApi()
 
-local BIT = jit and 16 or (math.maxinteger and math.maxinteger > 2^31 and 16 or 8) or 8
--- session_id format
-local PFORMAT = "%0" .. BIT .. "X"
 -- message handler
 -- @param _ any not used
 -- @param session_id RimeSessionId
@@ -55,6 +52,9 @@ local PFORMAT = "%0" .. BIT .. "X"
 -- @param msg_value string
 -- @return nil
 local function on_message(_, session_id, msg_type, msg_value)
+  local BIT = jit and 16 or (math.maxinteger and math.maxinteger > 2^31 and 16 or 8) or 8
+  -- session_id format
+  local PFORMAT = "%0" .. BIT .. "X"
   local msg = "lua > message: ["..PFORMAT.."] [%s] %s"
   print(msg:format(session_id, msg_type, msg_value))
   if msg_type == "option" then

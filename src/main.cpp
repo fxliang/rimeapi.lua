@@ -296,6 +296,12 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
             else
               lua_pushnil(L);
             return 1;
+          } else if (!strcmp(key, "str")) {
+            char buf[32];
+            auto format = sizeof(void*) == 4 ? ("%08X") : ("%016llX");
+            snprintf(buf, sizeof(buf), format, (RimeSessionId)s->id);
+            lua_pushstring(L, buf);
+            return 1;
           }
           lua_pushnil(L);
           return 1;
