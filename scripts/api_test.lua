@@ -23,7 +23,7 @@ end
 rime_api:setup(traits)
 print('rime_api:setup passed')
 rime_api:set_notification_handler(function(_, session_id, msg_type, msg_value)
-  local BIT = jit and 16 or (math.maxinteger and math.maxinteger > 2^31 and 16 or 8) or 8
+  local BIT = jit and (jit.arch:match('64') and 16 or 8) or ((string.packsize('T') == 8) and 16 or 8)
   -- session_id format
   local PFORMAT = "%0" .. BIT .. "X"
   print(string.format("[api_test.lua][%s][%s]: %s",
@@ -436,7 +436,7 @@ print('rime_api:user_config_open passed')
 ----------------------------------------------------------------
 assert(rime_api:destroy_session(session.id) == true)
 print('rime_api:destroy_session by raw RimeSessionId passed')
-local BIT = jit and 16 or (math.maxinteger and math.maxinteger > 2^31 and 16 or 8) or 8
+local BIT = jit and (jit.arch:match('64') and 16 or 8) or ((string.packsize('T') == 8) and 16 or 8)
 local PFORMAT = "%0" .. BIT .. "X"
 assert(string.format(PFORMAT, session.id) == session.str)
 ----------------------------------------------------------------
