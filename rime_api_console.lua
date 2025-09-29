@@ -52,7 +52,7 @@ local api = RimeApi()
 -- @param msg_value string
 -- @return nil
 local function on_message(_, session_id, msg_type, msg_value)
-  local BIT = jit and (jit.arch:match('64') and 16 or 8) or ((string.packsize('T') == 8) and 16 or 8)
+  local BIT = jit and ((require('ffi').sizeof('void*') == 8) and 16 or 8) or ((string.packsize('T') == 8) and 16 or 8)
   -- session_id format
   local PFORMAT = "%0" .. BIT .. "X"
   local msg = "lua > message: ["..PFORMAT.."] [%s] %s"

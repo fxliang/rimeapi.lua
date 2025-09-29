@@ -46,6 +46,7 @@ local ext = package.config:sub(1,1) == '\\' and '.exe' or ''
 local lua_exe = lua .. ext
 local rimeapi_exe = 'rimeapi.app' .. ext
 local cmd_runner = runner and lua_exe or rimeapi_exe
+local orig_cp = set_console_codepage(65001)
 if #arg == 1 and arg[1] == '-h' then
   -- list modules in ./scripts/
   local function listLuaFiles(dir)
@@ -82,6 +83,8 @@ elseif #arg >= 1 then
     print('-----------------------------------')
   end
 else
+  local orig_cp = set_console_codepage(65001)
   require('scripts.api_test')
   print('Tested default module: script.api_test')
 end
+set_console_codepage(orig_cp)
