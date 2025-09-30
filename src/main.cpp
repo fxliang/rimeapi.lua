@@ -13,16 +13,20 @@ inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = CP_UTF8) {
   SetConsoleOutputCP(codepage);
   return cp;
 }
+HMODULE librime;
 #else
-inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) {
-  return 0;
-}
+#include <dlfcn.h>
+void *librime;
+inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) { return 0; }
 #endif /* _WIN32 */
 
 using namespace std;
 
-#define RIMELEVERSAPI ((RimeLeversApi*)rime_get_api()->find_module("levers")->get_api())
-#define RIMEAPI rime_get_api()
+typedef RIME_FLAVORED(RimeApi) *(*RimeGetApi)(void);
+RimeApi* rime_api = nullptr;
+
+#define RIMELEVERSAPI ((RimeLeversApi*)rime_api->find_module("levers")->get_api())
+#define RIMEAPI rime_api
 
 static std::unordered_set<RimeConfig*> cfg_borrowed_set;
 static std::unordered_set<RimeSchemaList*> schemalist_borrowed_set;
@@ -2388,9 +2392,83 @@ static void register_rime_bindings(lua_State *L) {
   lua_setglobal(L, "set_console_codepage");
 }
 
+#ifdef WIN32
+#define FREE_RIME() do { if (librime) { FreeLibrary(librime); librime = nullptr; } } while(0)
+#define RIME_LIBRARY_NAME "rime.dll"
+#define RIME_LIBRARY_NAME_MINGW "librime.dll"
+#define LOAD_RIME_LIBRARY() (LoadLibraryA(RIME_LIBRARY_NAME) ? LoadLibraryA(RIME_LIBRARY_NAME) : LoadLibraryA(RIME_LIBRARY_NAME_MINGW))
+#define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(GetProcAddress(handle, "rime_get_api"))
+#define CLOSE_RIME_LIBRARY(handle) FreeLibrary(handle)
+#define REPORT_LOAD_ERROR() fprintf(stderr, "Error: failed to load %s\n", RIME_LIBRARY_NAME)
+#define REPORT_SYMBOL_ERROR() fprintf(stderr, "Error: failed to find rime_get_api in %s\n", RIME_LIBRARY_NAME)
+#define CLEAR_RIME_ERROR() ((void)0)
+#else
+#define FREE_RIME() do { if (librime) { dlclose(librime); librime = nullptr; } } while(0)
+#define RIME_LIBRARY_NAME "librime.so"
+#define RIME_LIBRARY_NAME_MAC "librime.so"
+#define LOAD_RIME_LIBRARY() (dlopen(RIME_LIBRARY_NAME, RTLD_LAZY | RTLD_LOCAL) ? dlopen(RIME_LIBRARY_NAME, RTLD_LAZY | RTLD_LOCAL) : dlopen(RIME_LIBRARY_NAME_MAC, RTLD_LAZY | RTLD_LOCAL))
+#define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(dlsym(handle, "rime_get_api"))
+#define CLOSE_RIME_LIBRARY(handle) dlclose(handle)
+#define REPORT_LOAD_ERROR() fprintf(stderr, "Error: failed to load %s: %s\n", RIME_LIBRARY_NAME, dlerror())
+#define REPORT_SYMBOL_ERROR() fprintf(stderr, "Error: failed to find rime_get_api in %s: %s\n", RIME_LIBRARY_NAME, dlerror())
+#define CLEAR_RIME_ERROR() ((void)dlerror())
+#endif
+
+static const char* RIME_LIBRARY_GC_KEY = "__rime_library_gc";
+static const char* RIME_LIBRARY_GC_MT = "__rime_library_gc_mt";
+
+static int librime_gc(lua_State* L) {
+  (void)L;
+  rime_api = nullptr;
+  FREE_RIME();
+  return 0;
+}
+
+static void ensure_librime_gc(lua_State* L) {
+  lua_getfield(L, LUA_REGISTRYINDEX, RIME_LIBRARY_GC_KEY);
+  if (!lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    return;
+  }
+  lua_pop(L, 1);
+  void* ud = lua_newuserdata(L, 0);
+  if (!ud) return;
+  if (luaL_newmetatable(L, RIME_LIBRARY_GC_MT)) {
+    lua_pushcfunction(L, librime_gc);
+    lua_setfield(L, -2, "__gc");
+  }
+  lua_setmetatable(L, -2);
+  lua_setfield(L, LUA_REGISTRYINDEX, RIME_LIBRARY_GC_KEY);
+}
+
+void get_api() {
+  if (rime_api) return;
+  librime = LOAD_RIME_LIBRARY();
+  if (!librime) {
+    REPORT_LOAD_ERROR();
+    return;
+  }
+  CLEAR_RIME_ERROR();
+  RimeGetApi loader = LOAD_RIME_FUNCTION(librime);
+  if (!loader) {
+    REPORT_SYMBOL_ERROR();
+    CLOSE_RIME_LIBRARY(librime);
+    librime = nullptr;
+    return;
+  }
+  rime_api = loader();
+  if (!rime_api) {
+    fprintf(stderr, "Error: rime_get_api returned null from %s\n", RIME_LIBRARY_NAME);
+    CLOSE_RIME_LIBRARY(librime);
+    librime = nullptr;
+  }
+}
+
 #if defined(BUILD_AS_LUA_MODULE)
 extern "C" RIME_API int luaopen_rimeapi(lua_State *L) {
+  get_api();
   register_rime_bindings(L);
+  ensure_librime_gc(L);
   // Create and return a module table that references main constructors
   lua_newtable(L);
   const char* names[] = {
@@ -2414,6 +2492,7 @@ extern "C" RIME_API int luaopen_rimeapi(lua_State *L) {
 #else
 int main(int argc, char* argv[]) {
   int codepage = SetConsoleOutputCodePage();
+  get_api();
   lua_State *L = luaL_newstate();
   luaL_openlibs(L);
   register_rime_bindings(L);
@@ -2459,6 +2538,7 @@ int main(int argc, char* argv[]) {
   lua_close(L);
   cleanup_levers_on_exit();
   SetConsoleOutputCodePage(codepage);
+  FREE_RIME();
   return ret;
 }
 #endif

@@ -53,7 +53,6 @@ target('rimeapi')
 rule('common_rules')
   on_load(function(target)
     target:set('languages', 'c++17')
-    target:add('links', 'rime')
     target:add('packages', lua_engine)
     if is_plat('windows') then
       target:add('cxflags', '/utf-8')
