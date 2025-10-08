@@ -246,7 +246,7 @@ struct LuaType<std::shared_ptr<T>> {
 };
 
 template <typename T>
-T* smart_shared_ptr_todata(lua_State *L, int index = 1) {
+static T* smart_shared_ptr_todata(lua_State *L, int index = 1) {
   // Return nullptr if the Lua value at index is nil
   if (lua_isnil(L, index)) return nullptr;
   // If it's a std::shared_ptr<T> userdata, unwrap and return the raw pointer
@@ -335,7 +335,7 @@ static RimeSessionId RimeSession_todata(lua_State *L, int idx) {
 }
 
 template<typename T, typename MemberType, MemberType T::*member>
-int unified_get(lua_State *L) {
+static int unified_get(lua_State *L) {
   T* t = smart_shared_ptr_todata<T>(L, 1);
   if (!t) {
     lua_pushnil(L);
@@ -347,7 +347,7 @@ int unified_get(lua_State *L) {
 }
 
 template<typename T, typename MemberType, MemberType T::*member>
-int unified_set(lua_State *L) {
+static int unified_set(lua_State *L) {
   T* t = smart_shared_ptr_todata<T>(L, 1);
   if (!t) {
     luaL_error(L, "Invalid userdata type for setting member");
@@ -363,7 +363,7 @@ int unified_set(lua_State *L) {
 
 // Specialized getter for boolean-like members where the C type may be int/Bool
 template<typename T, typename MemberType, MemberType T::*member>
-int unified_get_bool(lua_State *L) {
+static int unified_get_bool(lua_State *L) {
   T* t = smart_shared_ptr_todata<T>(L, 1);
   if (!t)
     lua_pushnil(L);
@@ -380,7 +380,7 @@ template <typename T>
 struct has_data_size<T, std::void_t<decltype(std::declval<T>().data_size)>> : std::true_type {};
 
 template <typename T>
-int raw_make(lua_State *L) {
+static int raw_make(lua_State *L) {
   auto t = std::make_shared<T>();
   if constexpr (has_data_size<T>::value)
     RIME_STRUCT_INIT(T, *t);
@@ -390,7 +390,7 @@ int raw_make(lua_State *L) {
 
 namespace RimeCompositionReg {
   using T = RimeComposition;
-  int tostring(lua_State* L) {
+  static int tostring(lua_State* L) {
     auto t = LuaType<T>::todata(L, 1);
     std::string repr = "{\n";
     if (t.preedit)
@@ -402,7 +402,7 @@ namespace RimeCompositionReg {
     lua_pushstring(L, repr.c_str());
     return 1;
   }
-  int raw_make(lua_State *L) {
+  static int raw_make(lua_State *L) {
     T t;
     LuaType<T>::pushdata(L, t);
     return 1;
@@ -430,7 +430,7 @@ namespace RimeCompositionReg {
 
 namespace RimeCandidateReg {
   using T = RimeCandidate;
-  int tostring(lua_State* L) {
+  static int tostring(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     std::string repr = "{";
     if (t->text)
@@ -463,12 +463,12 @@ std::string strzbool(bool b) { return b ? "true" : "false"; }
 
 namespace RimeMenuReg {
   using T = RimeMenu;
-  int raw_make(lua_State *L) {
+  static int raw_make(lua_State *L) {
     T t;
     LuaType<T>::pushdata(L, t);
     return 1;
   }
-  int tostring(lua_State* L) {
+  static int tostring(lua_State* L) {
     T t = LuaType<T>::todata(L, 1);  // 直接使用值类型
     std::string repr = "{\n";
     repr += "  page_size=" + std::to_string(t.page_size) + ", \n";
@@ -495,7 +495,7 @@ namespace RimeMenuReg {
     return 1;
   }
   // get candidates as a table of RimeCandidate
-  int get_candidates(lua_State* L) {
+  static int get_candidates(lua_State* L) {
     T menu = LuaType<T>::todata(L, 1);  // 直接使用值类型
     lua_newtable(L);
     for (int i = 0; i < menu.num_candidates; ++i) {
@@ -529,7 +529,7 @@ namespace RimeMenuReg {
 
 namespace RimeCommitReg {
   using T = RimeCommit;
-  int tostring(lua_State* L) {
+  static int tostring(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     std::string repr = "";
     if (t->text)
@@ -578,7 +578,7 @@ namespace RimeContextReg {
 
 namespace RimeStatusReg {
   using T = RimeStatus;
-  int tostring(lua_State* L) {
+  static int tostring(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     std::string repr = "{\n";
     if (t->schema_id)
@@ -622,7 +622,7 @@ namespace RimeStatusReg {
 
 namespace RimeCandidateListIteratorReg {
   using T = RimeCandidateListIterator;
-  int raw_make(lua_State *L) {
+  static int raw_make(lua_State *L) {
     T t;
     LuaType<T>::pushdata(L, t);
     return 1;
@@ -741,7 +741,7 @@ namespace RimeConfigReg {
     lua_pushboolean(L, ret);
     return 1;
   }
-  int set_string(lua_State* L) {
+  static int set_string(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     const char* value = luaL_checkstring(L, 3);
@@ -749,7 +749,7 @@ namespace RimeConfigReg {
     lua_pushboolean(L, ret);
     return 1;
   }
-  int set_bool(lua_State* L) {
+  static int set_bool(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     bool value = lua_toboolean(L, 3);
@@ -757,7 +757,7 @@ namespace RimeConfigReg {
     lua_pushboolean(L, ret);
     return 1;
   }
-  int set_double(lua_State* L) {
+  static int set_double(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     double value = luaL_checknumber(L, 3);
@@ -817,12 +817,12 @@ namespace RimeConfigIteratorReg {
 
 namespace RimeSchemaListItemReg {
   using T = RimeSchemaListItem;
-  int raw_make(lua_State *L) {
+  static int raw_make(lua_State *L) {
     T t;
     LuaType<T>::pushdata(L, t);
     return 1;
   }
-  int tostring(lua_State* L) {
+  static int tostring(lua_State* L) {
     T t = LuaType<T>::todata(L, 1);  // 直接使用值类型
     std::string repr = "";
     if (t.schema_id)
@@ -847,7 +847,7 @@ namespace RimeSchemaListItemReg {
     lua_pushstring(L, repr.c_str());
     return 1;
   }
-  int get_reserved(lua_State* L) {
+  static int get_reserved(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L, 1);
     auto sptr = std::shared_ptr<RimeSchemaInfo>((RimeSchemaInfo*)(t->reserved), [](RimeSchemaInfo* p){});
     LuaType<std::shared_ptr<RimeSchemaInfo>>::pushdata(L, sptr);
@@ -876,7 +876,7 @@ namespace RimeSchemaListReg {
   using T = RimeSchemaList;
 
   // get a table of LuaType<RimeSchemaListItem>
-  int list(lua_State* L) {
+  static int list(lua_State* L) {
     // return a table of RimeSchemaListItem
     // Accept either value userdata or shared_ptr userdata
     T* tp = smart_shared_ptr_todata<T>(L, 1);
@@ -909,7 +909,7 @@ namespace RimeSchemaListReg {
 
 namespace RimeStringSliceReg {
   using T = RimeStringSlice;
-  int raw_make(lua_State *L) {
+  static int raw_make(lua_State *L) {
     T t;
     LuaType<T>::pushdata(L, t);
     return 1;
@@ -921,7 +921,7 @@ namespace RimeStringSliceReg {
   static const luaL_Reg methods[] = {
     {nullptr, nullptr}
   };
-  int str(lua_State* L) {
+  static int str(lua_State* L) {
     T t = LuaType<T>::todata(L, 1);
     auto str = std::string(t.str, t.length);
     lua_pushstring(L, str.c_str());
@@ -939,7 +939,7 @@ namespace RimeStringSliceReg {
 
 namespace RimeCustomApiReg {
   using T = RimeCustomApi;
-  int raw_make(lua_State *L) {
+  static int raw_make(lua_State *L) {
     T t;
     LuaType<T>::pushdata(L, t);
     return 1;
@@ -961,7 +961,7 @@ namespace RimeCustomApiReg {
 
 namespace RimeModuleReg {
   using T = RimeModule;
-  int raw_make(lua_State *L) {
+  static int raw_make(lua_State *L) {
     T t;
     RIME_STRUCT_INIT(T, t);
     LuaType<T>::pushdata(L, t);
@@ -990,7 +990,7 @@ namespace RimeModuleReg {
 
 namespace RimeTraitsReg {
   using T = RimeTraits;
-  int tostring(lua_State *L) {
+  static int tostring(lua_State *L) {
     T* t = smart_shared_ptr_todata<T>(L);
     std::string repr = "{\n";
     if (t->app_name)
@@ -1765,7 +1765,7 @@ namespace RimeApiReg {
   // Macro to create function pointer wrappers, with function name info
   #define WRAP_API_FUNC(func) call_function_pointer<&T::func, func##_func_name>
 
-  int raw_make(lua_State *L) {
+  static int raw_make(lua_State *L) {
     auto api_ptr = std::shared_ptr<T>(RIMEAPI,
         [](T* t){
         clear_all_notification_handlers_internal();
@@ -1954,7 +1954,7 @@ namespace RimeSwitcherSettingsReg {
 namespace RimeSchemaInfoReg {
   using T = RimeSchemaInfo;
 #define DEFINE_GETTER(prop) \
-  int get_##prop(lua_State* L) { \
+  static int get_##prop(lua_State* L) { \
     T* si = smart_shared_ptr_todata<T>(L); \
     if (!si) lua_pushnil(L); \
     else { \
@@ -1970,7 +1970,7 @@ namespace RimeSchemaInfoReg {
   DEFINE_GETTER(author)
   DEFINE_GETTER(description)
 
-  int get_schema_id(lua_State* L) {
+  static int get_schema_id(lua_State* L) {
     T* si = smart_shared_ptr_todata<T>(L);
     if (!si) {
       lua_pushnil(L);
@@ -1984,7 +1984,7 @@ namespace RimeSchemaInfoReg {
     return 1;
   }
 
-  int get_schema_version(lua_State* L) {
+  static int get_schema_version(lua_State* L) {
     T* si = smart_shared_ptr_todata<T>(L);
     if (!si) {
       lua_pushnil(L);
@@ -1998,7 +1998,7 @@ namespace RimeSchemaInfoReg {
     return 1;
   }
 
-  int get_schema_file_path(lua_State* L) {
+  static int get_schema_file_path(lua_State* L) {
     T* si = smart_shared_ptr_todata<T>(L);
     if (!si) {
       lua_pushnil(L);
@@ -2285,7 +2285,7 @@ namespace RimeLeversApiReg {
   }
 #define WRAP_API_FUNC_LEVERS(func) call_function_pointer<&T::func, func##_func_name>
 
-  int raw_make(lua_State *L) {
+  static int raw_make(lua_State *L) {
     T *t = RIMELEVERSAPI;
     // 将API指针包装到shared_ptr中进行管理
     auto api_ptr = std::shared_ptr<T>(t, [](T*){});

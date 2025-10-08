@@ -69,7 +69,7 @@ struct LUAWRAPPER_LOCAL LuaTypeInfo {
 
   const char *name() const {
 #if defined(__GNUC__) && defined(DEBUG)
-    thread_local std::unordered_map<size_t, std::string> thread_demangle_cache;
+    static thread_local std::unordered_map<size_t, std::string> thread_demangle_cache;
     auto it = thread_demangle_cache.find(hash);
     if (it != thread_demangle_cache.end()) {
       return it->second.c_str();
