@@ -29,10 +29,11 @@ if not RimeApi then
 
   -- get path divider
   local div = package.config:sub(1,1) == '\\' and '\\' or '/'
-  local lib = package.config:sub(1,1) == '\\' and '?.dll' or '?.so'
-  local script_cpath = script_path() .. div .. lib
-  -- add the ?.so or ?.dll to package.cpath ensure requiring
-  -- you must keep the rime.dll or librime.so in current search path
+  local div = package.config:sub(1,1) == '\\' and '\\' or '/'
+  local script_cpath = script_path() .. div .. '?.dll' .. ';' .. script_path() .. div .. '?.dylib'
+  .. ';' .. script_path() .. div .. '?.so'
+  -- add the ?.so, ?.dylib or ?.dll to package.cpath ensure requiring
+  -- you must keep the rime.dll, librime.dylib or librime.so in current search path
   package.cpath = package.cpath .. ';' .. script_cpath
   package.path = package.path .. ';' .. script_path() .. div .. '?.lua'
   require('rimeapi')
@@ -47,7 +48,7 @@ local api = RimeApi()
 
 -- message handler
 -- @param _ any not used
--- @param session_id RimeSessionId
+-- @param session_id RimeSession|integer
 -- @param msg_type string
 -- @param msg_value string
 -- @return nil
@@ -184,7 +185,7 @@ local context = RimeContext()
 local status = RimeStatus()
 
 --- print session info
---- @param session_id RimeSessionId
+--- @param session_id RimeSession|integer
 --- @return nil
 local function print_session(session_id)
   if api:get_commit(session_id, commit) then
@@ -274,6 +275,7 @@ local function main()
   else
     print("Current schema:", str)
   end
+  local session_id_alive = session_id ~= nil
   print("ready")
   print("---------------------------------------------")
 
@@ -284,7 +286,9 @@ local function main()
       continue = false
       break
     elseif input == "reload" then
-      api:cleanup_all_sessions()
+      api:destroy_session(session_id)
+      print("distroying session..." .. string.format("0x%x", session_id.id))
+      session_id_alive = false
       api:finalize()
       input = ""
       main()
@@ -295,8 +299,10 @@ local function main()
       end
     end
   end
-  print("distroying session..." .. string.format("0x%x", session_id.id))
-  api:destroy_session(session_id)
+  if session_id_alive then
+    print("distroying session..." .. session_id.str)
+    api:destroy_session(session_id)
+  end
   api:finalize()
 end
 

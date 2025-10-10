@@ -239,12 +239,12 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
   RimeSessionStruct *s = new(u) RimeSessionStruct();
   s->id = id;
   const auto ensure_rime_session_mt = [](lua_State *L) {
-    luaL_getmetatable(L, "__RimeSessionId");
+    luaL_getmetatable(L, "RimeSession");
     if (lua_isnil(L, -1)) {
       lua_pop(L, 1);
-      luaL_newmetatable(L, "__RimeSessionId");
+      luaL_newmetatable(L, "RimeSession");
       lua_pushcfunction(L, [](lua_State *L)->int {
-          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, "__RimeSessionId");
+          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, "RimeSession");
           if (s && s->id) {
             if (auto api = RIMEAPI) api->destroy_session(s->id);
             s->id = 0;
@@ -254,7 +254,7 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
       lua_setfield(L, -2, "__gc");
       // push a __index function to get id by .id
       lua_pushcfunction(L, [](lua_State *L)->int {
-          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, "__RimeSessionId");
+          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, "RimeSession");
           const char* key = luaL_checkstring(L, 2);
           if (strcmp(key, "id") == 0) {
             PUSH_VALUE_OR_NIL(L, (lua_Integer)s->id, s && s->id, lua_pushinteger);
@@ -270,13 +270,13 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
           return 1;
         });
       lua_setfield(L, -2, "__index");
-      lua_pushlightuserdata(L, (void*)"__RimeSessionId");
+      lua_pushlightuserdata(L, (void*)"RimeSession");
       lua_setfield(L, -2, "type");
     }
     lua_pop(L, 1);
   };
   ensure_rime_session_mt(L);
-  luaL_setmetatable(L, "__RimeSessionId");
+  luaL_setmetatable(L, "RimeSession");
 }
 static RimeSessionId RimeSession_todata(lua_State *L, int idx) {
   if (lua_isnil(L, idx)) return 0;
@@ -284,8 +284,8 @@ static RimeSessionId RimeSession_todata(lua_State *L, int idx) {
     lua_Number n = lua_tonumber(L, idx);
     if (n == (lua_Number)(RimeSessionId)n) return (RimeSessionId)n;
   }
-  if (luaL_testudata(L, idx, "__RimeSessionId")) {
-    RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, idx, "__RimeSessionId");
+  if (luaL_testudata(L, idx, "RimeSession")) {
+    RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, idx, "RimeSession");
     return s ? s->id : 0;
   }
   if (lua_isnumber(L, idx)) return (RimeSessionId)lua_tointeger(L, idx);
@@ -2190,6 +2190,16 @@ namespace RimeLeversApiReg {
     return 1;
   }
   static int raw_make(lua_State *L) {
+    if (lua_gettop(L) == 1) {
+      RimeCustomApi* t = smart_shared_ptr_todata<RimeCustomApi>(L);
+      if (!t) {
+        lua_pushnil(L);
+      } else {
+        auto api_ptr = std::shared_ptr<T>((RimeLeversApi*)t, [](T*){});
+        LuaType<std::shared_ptr<T>>::pushdata(L, api_ptr);
+      }
+      return 1;
+    }
     T *t = RIMELEVERSAPI;
     // 将API指针包装到shared_ptr中进行管理
     auto api_ptr = std::shared_ptr<T>(t, [](T*){});
@@ -2250,12 +2260,8 @@ static int os_trymkdir(lua_State* L) {
   std::filesystem::path p(path);
   std::error_code ec;
   bool created = std::filesystem::create_directories(p, ec);
-  if (ec) {
-    lua_pushboolean(L, false);
-    lua_pushstring(L, ec.message().c_str());
-    return 2;
-  }
-  lua_pushboolean(L, created);
+  if (ec) lua_pushboolean(L, false);
+  else lua_pushboolean(L, true);
   return 1;
 }
 
@@ -2308,7 +2314,7 @@ static void register_rime_bindings(lua_State *L) {
 #define CLEAR_RIME_ERROR() ((void)0)
 #else
 #define FREE_RIME() do { if (librime) { dlclose(librime); librime = nullptr; } } while(0)
-#define LOAD_RIME_LIBRARY() (dlopen("librime.so", RTLD_LAZY | RTLD_LOCAL) ? dlopen("librime.so", RTLD_LAZY | RTLD_LOCAL) : dlopen("librime.dylib", RTLD_LAZY | RTLD_LOCAL))
+#define LOAD_RIME_LIBRARY() (dlopen("librime.so", RTLD_LAZY | RTLD_LOCAL | RTLD_DEEPBIND) ? dlopen("librime.so", RTLD_LAZY | RTLD_LOCAL | RTLD_DEEPBIND) : dlopen("librime.dylib", RTLD_LAZY | RTLD_LOCAL))
 #define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(dlsym(handle, "rime_get_api"))
 #define CLEAR_RIME_ERROR() ((void)dlerror())
 #endif
@@ -2355,7 +2361,7 @@ static void ensure_librime_gc(lua_State* L) {
   lua_setmetatable(L, -2);
   lua_setfield(L, LUA_REGISTRYINDEX, "__rime_library_gc");
 }
-extern "C" RIME_API int luaopen_rimeapi(lua_State *L) {
+extern "C" RIME_API int luaopen_rimeapi_lua(lua_State *L) {
   get_api();
   register_rime_bindings(L);
   ensure_librime_gc(L);

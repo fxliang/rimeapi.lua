@@ -106,7 +106,6 @@ if levers:load_settings(switcher_settings) then
   assert(levers:schema_list_destroy(schemalist) == nil)
   print('levers:schema_list_destroy passed')
 end
-
 local api_settings = levers:custom_settings_init('api_test', "rimeapi.lua")
 assert(api_settings ~= nil)
 if api_settings then

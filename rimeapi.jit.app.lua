@@ -40,50 +40,29 @@ if not RimeApi then
   runner = true
 end
 -------------------------------------------------------------------------------
-local lua = jit and 'luajit' or 'lua'
-local ext = package.config:sub(1,1) == '\\' and '.exe' or ''
-local lua_exe = lua .. ext
-local rimeapi_exe = 'rimeapi.app' .. ext
-local cmd_runner = runner and lua_exe or rimeapi_exe
-local orig_cp = set_console_codepage(65001)
-if #arg == 1 and arg[1] == '-h' then
-  -- list modules in ./scripts/
-  local function listLuaFiles(dir)
-    local files = {}
-    local cmd
-    if package.config:sub(1,1) == '\\' then cmd = 'dir /b "' .. dir .. '" 2>nul'
-    else cmd = 'ls "' .. dir .. '" 2>/dev/null'
+-- write a simple repl
+local function repl()
+  print("RimeApi REPL. Type 'exit' or 'quit' to leave.")
+  while true do
+    io.write("> ")
+    local input = io.read()
+    if input == "exit" or input == "quit" then
+      break
     end
-
-    local p = io.popen(cmd)
-    if p then
-      for line in p:lines() do
-        if line:match("%.lua$") then table.insert(files, line:sub(1, -5)) end
+    local func, err = load("return " .. input)
+    if not func then
+      func, err = load(input)
+    end
+    if func then
+      local success, result = pcall(func)
+      if success and result ~= nil then
+        print(result)
+      elseif not success then
+        print("Error: " .. result)
       end
-      p:close()
+    else
+      print("Error: " .. err)
     end
-    return files
   end
-  print("Available <modulen_name> in scripts directory:")
-  local luaFiles = listLuaFiles("scripts")
-  if #luaFiles == 0 then
-    print("  No .lua files found in scripts directory")
-  else
-    for _, filename in ipairs(luaFiles) do print("  " .. filename) end
-  end
-  print('Run:\n  '.. cmd_runner ..' test.lua <module_name>\n  or\n  '.. cmd_runner .. ' test.lua <module_name>\nto test a module')
-elseif #arg >= 1 then
-  -- loop arg to require the module in scripts
-  for i = 1, #arg do
-    local module = 'scripts.' .. arg[i]
-    print('Testing module: ' .. module)
-    require(module)
-    print('Tested module: ' .. module)
-    print('-----------------------------------')
-  end
-else
-  local orig_cp = set_console_codepage(65001)
-  require('scripts.api_test')
-  print('Tested default module: script.api_test')
 end
-set_console_codepage(orig_cp)
+repl()

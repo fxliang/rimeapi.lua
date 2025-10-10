@@ -15,11 +15,11 @@ target('rimeapi.app')
   add_rules('copy_after_build', 'common_rules')
 
 -------------------------------------------------------------------------------
-target('rimeapi')
+target('rimeapi_lua')
   set_kind('shared')
   --set target file name to rimeapi.so or rimeapi.dll
-  local file_name = is_plat('windows') and 'rimeapi.dll'
-    or (is_plat('macosx') and 'rimeapi.dylib' or 'rimeapi.so')
+  local file_name = is_plat('windows') and 'rimeapi_lua.dll'
+    or (is_plat('macosx') and 'rimeapi_lua.dylib' or 'rimeapi_lua.so')
   set_filename(file_name)
   add_files('src/main.cpp', {defines = 'BUILD_AS_LUA_MODULE'})
   add_deps('core')
@@ -29,6 +29,8 @@ target('rimeapi')
 -- rules definition
 rule('common_rules')
   on_load(function(target)
+    local is_termux = os.getenv("TERMUX_VERSION") and true or false
+    if is_termux or is_plat('macosx') then target:add('defines', 'RTLD_DEEPBIND=0') end
     target:set('languages', 'c++17')
     target:add('packages', 'lua')
     if is_plat('windows', 'mingw') then

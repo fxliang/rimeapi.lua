@@ -167,7 +167,7 @@
 ---@field get_property fun(self: self, session: RimeSession|integer, property_name: string, buffer_size: integer|nil): string
 ---@field get_schema_list fun(self: self, schema_list: RimeSchemaList): boolean
 ---@field free_schema_list fun(self: self, schema_list: RimeSchemaList): nil
----@field get_current_schema fun(self: self, session: RimeSession|integer): string|nil
+---@field get_current_schema fun(self: self, session: RimeSession|integer, buffer_size: integer): string|nil
 ---@field select_schema fun(self: self, session: RimeSession|integer, schema_id: string): boolean
 ---@field schema_open fun(self: self, schema_id: string, config: RimeConfig): boolean
 ---@field config_open fun(self: self, schema_id: string, config: RimeConfig): boolean
@@ -296,7 +296,8 @@ function RimeTraits() end
 ---@param path string
 function os.mkdir(path) end
 ---@return RimeLeversApi
-function RimeLeversApi() end
+---@param custom_api RimeCustomApi | nil
+function RimeLeversApi(custom_api) end
 ---@return RimeLeversApi | nil
 ---@param api RimeCustomApi
 function ToRimeLeversApi(api) end

@@ -16,9 +16,9 @@ if not os.mkdir then
   os.execute(mkdir_cmd .. traits.user_data_dir)
   os.execute(mkdir_cmd .. traits.log_dir)
 else
-  os.mkdir(traits.shared_data_dir)
-  os.mkdir(traits.user_data_dir)
-  os.mkdir(traits.log_dir)
+  assert(os.mkdir(traits.shared_data_dir) == true)
+  assert(os.mkdir(traits.user_data_dir) == true)
+  assert(os.mkdir(traits.log_dir) == true)
 end
 rime_api:setup(traits)
 print('rime_api:setup passed')
@@ -447,6 +447,9 @@ assert(rime_api:find_module('levers'):get_api().type == RimeCustomApi().type)
 print('rime_api:find_module passed')
 print('RimeModuleReg::method get_api passed')
 print('ToRimeLeversApi() passed')
+assert(RimeLeversApi(rime_api:find_module('levers'):get_api()).type == RimeLeversApi().type)
+assert(type(RimeLeversApi(rime_api:find_module('levers'):get_api()).custom_settings_init) == 'function')
+print('RimeLeversApi(custom_api) passed')
 -- if your librime build with librime-lua
 -- local lua = rime_api:find_module('lua')
 -- assert(lua ~= nil)
