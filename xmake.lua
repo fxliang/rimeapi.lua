@@ -1,20 +1,4 @@
--- Configuration option to choose lua engine
---[[
-option("lua_engine")
-  set_default("lua")
-  set_values("lua", "luajit")
-  set_description("Choose lua engine: lua or luajit")
-option_end()
-]]
---local prefix = os.getenv("PREFIX")
---local is_termux = prefix and prefix:match("com%.termux") ~= nil
-
--- Get the lua engine configuration
---local lua_engine = get_config("lua_engine") or "lua"
-local lua_engine = 'lua'
--- add_requires of lua_engine
-add_requires(lua_engine, {system = false})
-
+add_requires('lua', {system = false})
 -------------------------------------------------------------------------------
 --- core object lib
 target('core')
@@ -55,15 +39,17 @@ target('rimeapi')
 rule('common_rules')
   on_load(function(target)
     target:set('languages', 'c++17')
-    target:add('packages', lua_engine)
-    if is_plat('windows') then
-      target:add('cxflags', '/utf-8')
-      target:add('cflags', '/utf-8')
+    target:add('packages', 'lua')
+    if target:kind() == 'binary' and is_plat('linux', 'mingw') then
+      target:add('ldflags', '-static -static-libstdc++', '-static-libgcc')
+    end
+    if is_plat('windows', 'mingw') then
       target:add('includedirs', 'include')
-    else
-      if target:kind() == 'binary' and is_plat('linux') then
-        target:add('ldflags', '-static -static-libstdc++', '-static-libgcc')
+      if is_plat('windows') then
+        target:add('cxflags', '/utf-8')
+        target:add('cflags', '/utf-8')
       end
+    else
       target:add('syslinks', {'pthread', 'dl'})
     end
     target:add('defines', 'RIME_EXPORTS')
@@ -92,7 +78,7 @@ rule('copy_after_build')
     print('copy ' .. target:targetfile() .. ' to ' .. os.projectdir())
     os.cp(target:targetfile(), os.projectdir())
     if is_plat('windows', 'mingw') then
-      os.trycp(is_arch('x64') and 'lib64\\rime.dll' or 'lib\\rime.dll', os.projectdir())
+      os.trycp(is_arch('x64', 'x86_64') and 'lib64\\rime.dll' or 'lib\\rime.dll', os.projectdir())
     end
     if target:name() == 'rimeapi' then
       local bin_path = target:get('lua_bin_dir')
