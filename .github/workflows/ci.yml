@@ -43,20 +43,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-librime-
 
-      - name: setup build tools
-        run: |
-          pushd librime
-          ./action-install-linux.sh
-          sudo apt install -y ninja-build checkinstall
-          popd
+      - name: setup deps
+        working-directory: librime
+        run: ./action-install-linux.sh
 
       - name: prepare librime
         id: prepare-librime
         if: steps.cache-librime.outputs.cache-hit != 'true'
+        working-directory: librime
         env:
           CMAKE_GENERATOR: Ninja
         run: |
-          pushd librime
+          sudo apt install -y checkinstall
           make
           sudo checkinstall \
             --pkgname=librime \
@@ -70,7 +68,6 @@ jobs:
             --install=no \
             --default \
             --backup=no
-          popd
 
       - name: install librime
         if: steps.cache-librime.outputs.cache-hit == 'true' || steps.prepare-librime.outcome == 'success'
