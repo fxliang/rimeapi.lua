@@ -14,7 +14,6 @@ To build the shared library, xmake is required. Follow these steps:
 - install `xmake`, `git`, and compiler tools for your system
 - clone the repository
 - install `librime` for linux/macos, or prepare librime libs in `lib` or `lib64` (.lib and .dll) and headers in `include` for windows
-- build with xmake: `xmake`. `lua` and `luajit` is optional by param `xmake f --lua_engine=lua` or `xmake f --lua_engine=luajit`. Be careful it shall be the same lua backend used in `librime-lua`, or make the lua symbols hidden in `librime/librime-lua` if you are using `in-tree-lua` when building `librime-lua`. Or else error might happen.
 - the `rimeapi.app` or `rimeapi.app.exe` will be generated in the project root directory
 
 ## Files Description

@@ -1,15 +1,17 @@
 -- Configuration option to choose lua engine
+--[[
 option("lua_engine")
   set_default("lua")
   set_values("lua", "luajit")
   set_description("Choose lua engine: lua or luajit")
 option_end()
-
-local prefix = os.getenv("PREFIX")
-local is_termux = prefix and prefix:match("com%.termux") ~= nil
+]]
+--local prefix = os.getenv("PREFIX")
+--local is_termux = prefix and prefix:match("com%.termux") ~= nil
 
 -- Get the lua engine configuration
-local lua_engine = get_config("lua_engine") or "lua"
+--local lua_engine = get_config("lua_engine") or "lua"
+local lua_engine = 'lua'
 -- add_requires of lua_engine
 add_requires(lua_engine, {system = false})
 
