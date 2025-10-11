@@ -40,9 +40,6 @@ rule('common_rules')
   on_load(function(target)
     target:set('languages', 'c++17')
     target:add('packages', 'lua')
-    if target:kind() == 'binary' and is_plat('linux', 'mingw') then
-      target:add('ldflags', '-static -static-libstdc++', '-static-libgcc')
-    end
     if is_plat('windows', 'mingw') then
       target:add('includedirs', 'include')
       if is_plat('windows') then
