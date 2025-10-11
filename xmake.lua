@@ -29,8 +29,8 @@ target('rimeapi')
   set_filename(file_name)
   add_files('src/main.cpp', {defines = 'BUILD_AS_LUA_MODULE'})
   add_deps('core')
-  if is_plat('windows') then
-    add_linkdirs(is_arch('x64') and 'lib64' or 'lib')
+  if is_plat('windows', 'mingw') then
+    add_linkdirs(is_arch('x64', 'x86_64') and 'lib64' or 'lib')
   end
   add_rules('copy_after_build', 'common_rules')
 
