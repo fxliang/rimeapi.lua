@@ -6,6 +6,7 @@
 #include <mutex>
 #include <filesystem>
 #include <unordered_set>
+#include <iostream>
 #ifdef _WIN32
 #include <windows.h>
 inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = CP_UTF8) {
@@ -1775,6 +1776,12 @@ namespace RimeApiReg {
     LuaType<std::shared_ptr<T>>::pushdata(L, api_ptr);
     return 1;
   }
+  static int tostring(lua_State *L) {
+    T* api = smart_shared_ptr_todata<T>(L);
+    std::string demangled_name = LuaType<std::shared_ptr<T>>::type()->name();
+    lua_pushfstring(L, "LuaType<std::shared_ptr<rime_api_t> >: %p", api);
+    return 1;
+  }
   static const luaL_Reg funcs[] = {
     {"RimeApi", raw_make},
     {nullptr, nullptr}
@@ -1910,6 +1917,7 @@ namespace RimeApiReg {
     {"get_state_label", WRAP_API_FUNC(get_state_label)},
     {"get_state_label_abbreviated", WRAP_API_FUNC(get_state_label_abbreviated)},
     {"get_version", WRAP_API_FUNC(get_version)},
+    {"__tostring", tostring},
 
     {nullptr, nullptr}
   };
@@ -2496,9 +2504,9 @@ int main(int argc, char* argv[]) {
   lua_State *L = luaL_newstate();
   luaL_openlibs(L);
   register_rime_bindings(L);
-  // if argv is empty, use ./test.lua else use argv[1] as script path
+  // if argv is empty get to interactive mode, else use argv[1] as script path
   std::string script = argc > 1 && std::filesystem::exists(argv[1]) ?
-    std::string(argv[1]) : std::string("./test.lua");
+    std::string(argv[1]) : "";
   // add script path's directory to package.path
   std::filesystem::path sp(script);
   std::string script_dir = sp.has_parent_path() ? sp.parent_path().string() : ".";
@@ -2529,7 +2537,20 @@ int main(int argc, char* argv[]) {
     }
   };
   int ret = 0;
-  if (luaL_dofile(L, script.c_str())) {
+  if (script.empty()) {
+    // enter interactive mode
+    printf("Rime Lua API interactive mode. Ctrl-c to exit.\n");
+    while (true) {
+      printf("> ");
+      std::string line;
+      if (!std::getline(std::cin, line)) break;
+      if (luaL_dostring(L, line.c_str())) {
+        const char *msg = lua_tostring(L, -1);
+        printf("Error: %s\n", msg);
+        lua_pop(L, 1);
+      }
+    }
+  } else if (luaL_dofile(L, script.c_str())) {
     const char *msg = lua_tostring(L, -1);
     printf("Error: %s\n", msg);
     lua_pop(L, 1);  // remove error message
