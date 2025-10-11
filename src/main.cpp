@@ -2538,17 +2538,53 @@ int main(int argc, char* argv[]) {
   };
   int ret = 0;
   if (script.empty()) {
-    // enter interactive mode
+    // Lua-like interactive mode
     printf("Rime Lua API interactive mode. Ctrl-c to exit.\n");
     while (true) {
-      printf("> ");
       std::string line;
-      if (!std::getline(std::cin, line)) break;
-      if (luaL_dostring(L, line.c_str())) {
-        const char *msg = lua_tostring(L, -1);
-        printf("Error: %s\n", msg);
-        lua_pop(L, 1);
+      std::cout << "> ";
+      if (!std::getline(std::cin, line)) { break; }
+      int base = lua_gettop(L);
+      bool compiled = false;
+      // First try to treat input as an expression (return <line>)
+      if (!line.empty()) {
+        std::string expr = "return " + line;
+        if (luaL_loadstring(L, expr.c_str()) == LUA_OK) compiled = true;
+        else lua_settop(L, base);  // drop error message 
       }
+
+      if (!compiled) {
+        if (luaL_loadstring(L, line.c_str()) != LUA_OK) {
+          const char *msg = lua_tostring(L, -1);
+          printf("Error: %s\n", msg ? msg : "unknown error");
+          lua_settop(L, base);
+          continue;
+        }
+      }
+
+      if (lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK) {
+        const char *msg = lua_tostring(L, -1);
+        printf("Error: %s\n", msg ? msg : "unknown error");
+        lua_settop(L, base);
+        continue;
+      }
+
+      int nresults = lua_gettop(L) - base;
+      for (int i = 1; i <= nresults; ++i) {
+        int idx = base + i;
+        if (lua_isstring(L, idx)) {
+          printf("%s\n", lua_tostring(L, idx));
+        } else if (lua_isnumber(L, idx)) {
+          printf("%g\n", lua_tonumber(L, idx));
+        } else if (lua_isboolean(L, idx)) {
+          printf("%s\n", lua_toboolean(L, idx) ? "true" : "false");
+        } else if (lua_isnil(L, idx)) {
+          printf("nil\n");
+        } else if (!lua_isnone(L, idx)) {
+          printf("%s\n", luaL_typename(L, idx));
+        }
+      }
+      lua_settop(L, base);
     }
   } else if (luaL_dofile(L, script.c_str())) {
     const char *msg = lua_tostring(L, -1);
