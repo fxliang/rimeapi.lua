@@ -61,6 +61,9 @@ rule('common_rules')
       target:add('cflags', '/utf-8')
       target:add('includedirs', 'include')
     else
+      if target:kind() == 'binary' and is_plat('linux') then
+        target:add('ldflags', '-static -static-libstdc++', '-static-libgcc')
+      end
       target:add('syslinks', {'pthread', 'dl'})
     end
     target:add('defines', 'RIME_EXPORTS')
@@ -74,7 +77,7 @@ rule('common_rules')
   end)
   after_load(function (target)
     local pkgs = target:pkgs()
-    local pkg = pkgs and pkgs[lua_engine]
+    local pkg = pkgs and pkgs['lua']
     if pkg and pkg.installdir then
       local installdir = pkg:installdir()
       if installdir and os.isdir(installdir) then
@@ -94,7 +97,7 @@ rule('copy_after_build')
     if target:name() == 'rimeapi' then
       local bin_path = target:get('lua_bin_dir')
       if bin_path and os.isdir(bin_path) then
-        local lua_bin_name = is_plat('windows', 'mingw') and (lua_engine .. '.exe') or lua_engine
+        local lua_bin_name = is_plat('windows', 'mingw') and ('lua' .. '.exe') or 'lua'
         local lua_path = path.join(bin_path, lua_bin_name)
         print('copy ' .. lua_path .. ' to ' .. os.projectdir())
         os.trycp(lua_path, os.projectdir())
