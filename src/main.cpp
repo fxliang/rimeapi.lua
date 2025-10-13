@@ -2320,7 +2320,7 @@ static void register_rime_bindings(lua_State *L) {
 #else
 #define FREE_RIME() do { if (librime) { dlclose(librime); librime = nullptr; } } while(0)
 #define RIME_LIBRARY_NAME "librime.so"
-#define RIME_LIBRARY_NAME_MAC "librime.so"
+#define RIME_LIBRARY_NAME_MAC "librime.dylib"
 #define LOAD_RIME_LIBRARY() (dlopen(RIME_LIBRARY_NAME, RTLD_LAZY | RTLD_LOCAL) ? dlopen(RIME_LIBRARY_NAME, RTLD_LAZY | RTLD_LOCAL) : dlopen(RIME_LIBRARY_NAME_MAC, RTLD_LAZY | RTLD_LOCAL))
 #define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(dlsym(handle, "rime_get_api"))
 #define CLOSE_RIME_LIBRARY(handle) dlclose(handle)
