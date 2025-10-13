@@ -17,6 +17,38 @@ on:
   pull_request:
 
 jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: install boost
+        run: ./librime/install-boost.sh
+
+      - name: setup librime
+        run: |
+          # get librime 1.14.0 dist
+          wget https://github.com/rime/librime/releases/download/1.14.0/rime-e053fb2-macOS-universal.tar.bz2
+          tar xf rime-e053fb2-macOS-universal.tar.bz2 dist
+          cp -r dist/lib/* ./
+      
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          actions-cache-folder: '.xmake-cache'
+
+      - name: build rimeapi.lua
+        id: build_rimeapi_lua
+        run: |
+          xmake f -y -p macosx --includedirs=dist/include
+          xmake -y
+
+      - name: test
+        run: |
+          ./rimeapi.app test.lua api_test levers_api_test
+          ./lua test.lua api_test levers_api_test
 
   build-ubuntu:
     runs-on: ubuntu-latest

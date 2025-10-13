@@ -16,6 +16,8 @@ target('rimeapi.app')
   end
   if is_plat('linux') then
     add_ldflags('-Wl,-rpath,$ORIGIN', {force = true})
+  elseif is_plat('macosx') then
+    add_ldflags('-Wl,-rpath,@loader_path', {force = true})
   end
   add_files('src/main.cpp')
   add_rules('copy_after_build', 'common_rules')
@@ -31,6 +33,11 @@ target('rimeapi')
   add_deps('core')
   if is_plat('windows', 'mingw') then
     add_linkdirs(is_arch('x64', 'x86_64') and 'lib64' or 'lib')
+  end
+  if is_plat('linux') then
+    add_ldflags('-Wl,-rpath,$ORIGIN', {force = true})
+  elseif is_plat('macosx') then
+    add_ldflags('-Wl,-rpath,@loader_path', {force = true})
   end
   add_rules('copy_after_build', 'common_rules')
 
