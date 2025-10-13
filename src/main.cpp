@@ -34,7 +34,8 @@ static std::unordered_set<RimeSchemaList*> schemalist_borrowed_set;
 static std::mutex cfg_borrowed_mutex;
 static std::mutex schemalist_borrowed_mutex;
 
-#define IS_OBJ_BORROWED(obj, set) (obj && set.find(obj) != set.end())
+#define PUSH_VALUE_OR_NIL(L, val, cond, push_func) do {                       \
+    if (cond) push_func(L, val); else lua_pushnil(L); } while(0)
 // Thread-safe check wrappers
 static inline bool is_config_borrowed(RimeConfig* cfg) {
   if (!cfg) return false;
@@ -58,12 +59,6 @@ static inline void set_config_borrowed(RimeConfig* cfg, bool borrowed) {
 
 static std::unordered_set<void*> levers_settings_owned;
 static std::mutex levers_settings_mutex;
-
-static inline void register_levers_settings(void* ptr) {
-  if (!ptr) return;
-  std::lock_guard<std::mutex> lk(levers_settings_mutex);
-  levers_settings_owned.insert(ptr);
-}
 
 static inline void mark_levers_settings_destroyed(void* ptr) {
   if (!ptr) return;
@@ -90,9 +85,10 @@ static inline void destroy_levers_settings(void* ptr) {
 // Generic helper: wrap a levers-owned raw pointer into a shared_ptr with
 // a deleter that calls destroy_levers_settings, then push to Lua.
 template<typename U>
-static void push_levers_owned(lua_State* L, U* ptr) {
+static void push_from_raw(lua_State* L, U* ptr) {
   if (!ptr) { lua_pushnil(L); return; }
-  register_levers_settings(ptr);
+  std::lock_guard<std::mutex> lk(levers_settings_mutex);
+  levers_settings_owned.insert(ptr);
   auto sptr = std::shared_ptr<U>(ptr, [](U* p) { destroy_levers_settings(reinterpret_cast<void*>(p)); });
   LuaType<std::shared_ptr<U>>::pushdata(L, sptr);
 }
@@ -170,11 +166,6 @@ struct LuaType<RimeStringSlice> {
     return o->slice;
   }
 };
-
-template <typename T>
-const char* type_name() { return LuaType<T>::type()->name(); }
-template <typename T>
-const char* type_name_sptr() { return LuaType<std::shared_ptr<T>>::type()->name(); }
 
 // 通用shared_ptr特化 - 自动内存管理
 template<typename T>
@@ -296,10 +287,7 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
           RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, RIME_SESSION_MT);
           const char* key = luaL_checkstring(L, 2);
           if (strcmp(key, "id") == 0) {
-            if (s && s->id)
-              lua_pushinteger(L, (lua_Integer)s->id);
-            else
-              lua_pushnil(L);
+            PUSH_VALUE_OR_NIL(L, (lua_Integer)s->id, s && s->id, lua_pushinteger);
             return 1;
           } else if (!strcmp(key, "str")) {
             char buf[32];
@@ -366,10 +354,7 @@ static int unified_set(lua_State *L) {
 template<typename T, typename MemberType, MemberType T::*member>
 static int unified_get_bool(lua_State *L) {
   T* t = smart_shared_ptr_todata<T>(L, 1);
-  if (!t)
-    lua_pushnil(L);
-  else
-    lua_pushboolean(L, !!(t->*member));
+  PUSH_VALUE_OR_NIL(L, !!(t->*member), t != nullptr, lua_pushboolean);
   return 1;
 }
 #define SMART_GET_BOOL(T, member) unified_get_bool<T, decltype(T::member), &T::member>
@@ -685,10 +670,7 @@ namespace RimeConfigReg {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     int value = 0;
-    if (RIMEAPI->config_get_int(t, key, &value))
-      lua_pushinteger(L, value);
-    else
-      lua_pushnil(L);
+    PUSH_VALUE_OR_NIL(L, value, RIMEAPI->config_get_int(t, key, &value), lua_pushinteger);
     return 1;
   }
   static int get_string(lua_State* L) {
@@ -698,40 +680,28 @@ namespace RimeConfigReg {
     if (lua_gettop(L) > 2)
       buffer_size = luaL_checkinteger(L, 3);
     std::unique_ptr<char[]> buffer = std::make_unique<char[]>(buffer_size);
-    if (RIMEAPI->config_get_string(t, key, buffer.get(), buffer_size))
-      lua_pushstring(L, buffer.get());
-    else
-      lua_pushnil(L);
+    PUSH_VALUE_OR_NIL(L, buffer.get(), RIMEAPI->config_get_string(t, key, buffer.get(), buffer_size), lua_pushstring);
     return 1;
   }
   static int get_bool(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     Bool value = false;
-    if (RIMEAPI->config_get_bool(t, key, &value))
-      lua_pushboolean(L, (bool)value);
-    else
-      lua_pushnil(L);
+    PUSH_VALUE_OR_NIL(L, (bool)value, RIMEAPI->config_get_bool(t, key, &value), lua_pushboolean);
     return 1;
   }
   static int get_double(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     double value = 0.0;
-    if (RIMEAPI->config_get_double(t, key, &value))
-      lua_pushnumber(L, value);
-    else
-      lua_pushnil(L);
+    PUSH_VALUE_OR_NIL(L, value, RIMEAPI->config_get_double(t, key, &value), lua_pushnumber);
     return 1;
   }
   static int get_cstring(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
     const char* value = RIMEAPI->config_get_cstring(t, key);
-    if (value)
-      lua_pushstring(L, value);
-    else
-      lua_pushnil(L);
+    PUSH_VALUE_OR_NIL(L, value, value != nullptr, lua_pushstring);
     return 1;
   }
   static int set_int(lua_State* L) {
@@ -1057,9 +1027,13 @@ namespace RimeTraitsReg {
   };
 }
 
-// 使用宏创建带函数名的包装器
+// Macro to declare function name variable
 #define DECLARE_FUNC_NAME_VAR(name) \
   static constexpr const char name##_func_name[] = #name;
+// Macro to create function pointer wrappers, with function name info
+#define WRAP_API_FUNC(func) call_function_pointer<&T::func, func##_func_name>
+// Macro to check function signature
+#define SIGNATURE_CHECK(ret, ...) (std::is_same_v<FuncType, ret(*)(__VA_ARGS__)>)
 
 namespace RimeApiReg {
   using T = RimeApi;
@@ -1355,7 +1329,6 @@ namespace RimeApiReg {
     // Deduce function signature from member pointer type
     using FuncType = decltype(func_ptr);
     // 1st is the return type, rest are argument types
-#define SIGNATURE_CHECK(ret, ...) (std::is_same_v<FuncType, ret(*)(__VA_ARGS__)>)
     if constexpr SIGNATURE_CHECK(void) {
       func_ptr();
       return 0;
@@ -1431,17 +1404,15 @@ namespace RimeApiReg {
       const char* key = luaL_checkstring(L, 3);
       std::unique_ptr<double> value = std::make_unique<double>();
       Bool result = func_ptr(config, key, value.get());
-      if (result) {
-        lua_pushnumber(L, *value);
-      } else {
-        lua_pushnil(L);
-      }
+      PUSH_VALUE_OR_NIL(L, *value, result, lua_pushnumber);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, char*, size_t) {
       // config_get_string
       if (lua_gettop(L) < 3) {
         // 1st param is function pointer
-        luaL_error(L, "Expected 3 arguments for \"%s\", (%s, %s, %s) is required", func_name, type_name_sptr<RimeConfig>(), "string", "integer");
+        luaL_error(L,
+            "Expected 3 arguments for \"%s\", (%s, string, integer) is required",
+            func_name, LuaType<std::shared_ptr<RimeConfig>>::type()->name());
         return 0;
       }
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
@@ -1450,11 +1421,7 @@ namespace RimeApiReg {
       if (lua_gettop(L) == 4) buffer_size = luaL_checkinteger(L, 4);
       std::unique_ptr<char[]> buffer = std::make_unique<char[]>(buffer_size);
       Bool result = func_ptr(config, key, buffer.get(), buffer_size);
-      if (result) {
-        lua_pushstring(L, buffer.get());
-      } else {
-        lua_pushnil(L);
-      }
+      PUSH_VALUE_OR_NIL(L, buffer.get(), result, lua_pushstring);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeCommit*) {
       RimeCommit* commit = smart_shared_ptr_todata<RimeCommit>(L, 2);
@@ -1492,20 +1459,20 @@ namespace RimeApiReg {
     } else if constexpr (std::is_same_v<FuncType, const char*(*)()> ) {
       // functions returning const char* with no args (e.g. get_version, get_user_id)
       const char* s = func_ptr();
-      if (s) lua_pushstring(L, s); else lua_pushnil(L);
+      PUSH_VALUE_OR_NIL(L, s, s != nullptr, lua_pushstring);
       return 1;
     } else if constexpr SIGNATURE_CHECK(const char*, RimeConfig*, const char*) {
       // config_get_cstring
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 2);
       const char* key = luaL_checkstring(L, 3);
       const char* value = func_ptr(config, key);
-      if (value) lua_pushstring(L, value); else lua_pushnil(L);
+      PUSH_VALUE_OR_NIL(L, value, value != nullptr, lua_pushstring);
       return 1;
     } else if constexpr SIGNATURE_CHECK(const char*, RimeSessionId) {
       // get_input
       RimeSessionId session_id = RimeSession_todata(L, 2);
       const char* s = func_ptr(session_id);
-      if (s) lua_pushstring(L, s); else lua_pushnil(L);
+      PUSH_VALUE_OR_NIL(L, s, s != nullptr, lua_pushstring);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, const char*) {
       // run_task(const char*) -> Bool
@@ -1738,7 +1705,7 @@ namespace RimeApiReg {
       const char* option_name = luaL_checkstring(L, 3);
       Bool state = lua_toboolean(L, 4);
       const char* s = func_ptr(session_id, option_name, state);
-      if (s) lua_pushstring(L, s); else lua_pushnil(L);
+      PUSH_VALUE_OR_NIL(L, s, s != nullptr, lua_pushstring);
       return 1;
     } else if constexpr SIGNATURE_CHECK(RimeStringSlice, RimeSessionId, const char*, Bool, Bool) {
       // RimeStringSlice get_state_label_abbreviated(RimeSessionId, const char*, Bool, Bool)
@@ -1760,11 +1727,7 @@ namespace RimeApiReg {
       luaL_error(L, "Unsupported function signature for function: %s", func_name);
       return 0;
     }
-#undef SIGNATURE_CHECK
   }
-
-  // Macro to create function pointer wrappers, with function name info
-  #define WRAP_API_FUNC(func) call_function_pointer<&T::func, func##_func_name>
 
   static int raw_make(lua_State *L) {
     auto api_ptr = std::shared_ptr<T>(RIMEAPI,
@@ -1923,16 +1886,10 @@ namespace RimeApiReg {
   };
   static const luaL_Reg vars_get[] = { {nullptr, nullptr} };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
-#undef WRAP_API_FUNC
 }
 
 namespace RimeCustomSettingsReg {
   using T = RimeCustomSettings;
-  // Helper: wrap a raw RimeCustomSettings* returned by levers API into
-  // a std::shared_ptr with the custom deleter and push to Lua stack.
-  static void push_from_raw(lua_State* L, RimeCustomSettings* settings) {
-    push_levers_owned<RimeCustomSettings>(L, settings);
-  }
   static const luaL_Reg funcs[] = {
     {"RimeCustomSettings", raw_make<T>},
     {nullptr, nullptr}
@@ -1946,10 +1903,6 @@ namespace RimeCustomSettingsReg {
 
 namespace RimeSwitcherSettingsReg {
   using T = RimeSwitcherSettings;
-  // Helper similar to RimeCustomSettingsReg::push_from_raw
-  static void push_from_raw(lua_State* L, RimeSwitcherSettings* settings) {
-    push_levers_owned<RimeSwitcherSettings>(L, settings);
-  }
   static const luaL_Reg funcs[] = {
     {"RimeSwitcherSettings", raw_make<T>},
     {nullptr, nullptr}
@@ -1977,65 +1930,26 @@ namespace RimeSchemaInfoReg {
   DEFINE_GETTER(name)
   DEFINE_GETTER(author)
   DEFINE_GETTER(description)
-
-  static int get_schema_id(lua_State* L) {
-    T* si = smart_shared_ptr_todata<T>(L);
-    if (!si) {
-      lua_pushnil(L);
-    } else {
-      RimeLeversApi* api = RIMELEVERSAPI;
-      if (api) {
-        const char* s = api->get_schema_id(si);
-        if (s) lua_pushstring(L, s); else lua_pushnil(L);
-      } else lua_pushnil(L);
-    }
-    return 1;
-  }
-
-  static int get_schema_version(lua_State* L) {
-    T* si = smart_shared_ptr_todata<T>(L);
-    if (!si) {
-      lua_pushnil(L);
-    } else {
-      RimeLeversApi* api = RIMELEVERSAPI;
-      if (api) {
-        const char* s = api->get_schema_version(si);
-        if (s) lua_pushstring(L, s); else lua_pushnil(L);
-      } else lua_pushnil(L);
-    }
-    return 1;
-  }
-
-  static int get_schema_file_path(lua_State* L) {
-    T* si = smart_shared_ptr_todata<T>(L);
-    if (!si) {
-      lua_pushnil(L);
-    } else {
-      RimeLeversApi* api = RIMELEVERSAPI;
-      if (api) {
-        const char* s = api->get_schema_file_path(si);
-        if (s) lua_pushstring(L, s); else lua_pushnil(L);
-      } else lua_pushnil(L);
-    }
-    return 1;
-  }
+  DEFINE_GETTER(id)
+  DEFINE_GETTER(version)
+  DEFINE_GETTER(file_path)
   static const luaL_Reg funcs[] = { {nullptr, nullptr} };
   static const luaL_Reg methods[] = {
-    {"get_schema_id", get_schema_id},
+    {"get_schema_id", get_id},
     {"get_schema_name", get_name},
-    {"get_schema_version", get_schema_version},
+    {"get_schema_version", get_version},
     {"get_schema_author", get_author},
     {"get_schema_description", get_description},
-    {"get_schema_file_path", get_schema_file_path},
+    {"get_schema_file_path", get_file_path},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_get[] = {
     {"name", get_name},
     {"author", get_author},
     {"description", get_description},
-    {"schema_id", get_schema_id},
-    {"version", get_schema_version},
-    {"file_path", get_schema_file_path},
+    {"schema_id", get_id},
+    {"version", get_version},
+    {"file_path", get_file_path},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -2090,19 +2004,13 @@ namespace RimeLeversApiReg {
 
   // Helper available to multiple call sites: try to obtain a RimeCustomSettings*
   static RimeCustomSettings* lua_to_custom_settings(lua_State* L, int idx) {
-    // try direct RimeCustomSettings
-    RimeCustomSettings* s = smart_shared_ptr_todata<RimeCustomSettings>(L, idx);
-    if (s) return s;
-    // try RimeSwitcherSettings cast
-    RimeSwitcherSettings* ss = smart_shared_ptr_todata<RimeSwitcherSettings>(L, idx);
-    if (ss) return reinterpret_cast<RimeCustomSettings*>(ss);
-    // try RimeSchemaInfo cast
-    RimeSchemaInfo* si = smart_shared_ptr_todata<RimeSchemaInfo>(L, idx);
-    if (si) return reinterpret_cast<RimeCustomSettings*>(si);
-    // try lightuserdata
-    if (lua_islightuserdata(L, idx)) {
+#define TRY_RETURN(type) do{type *t = smart_shared_ptr_todata<type>(L, idx); \
+  if (t) return reinterpret_cast<RimeCustomSettings*>(t);} while(0)
+    TRY_RETURN(RimeCustomSettings);
+    TRY_RETURN(RimeSwitcherSettings);
+    TRY_RETURN(RimeSchemaInfo);
+    if (lua_islightuserdata(L, idx))
       return static_cast<RimeCustomSettings*>(lua_touserdata(L, idx));
-    }
     return nullptr;
   }
   template<auto member_ptr, const char* func_name = nullptr>
@@ -2111,12 +2019,11 @@ namespace RimeLeversApiReg {
     auto func_ptr = api->*member_ptr;
     assert(func_name);
     using FuncType = decltype(func_ptr);
-#define SIGNATURE_CHECK(ret, ...) (std::is_same_v<FuncType, ret(*)(__VA_ARGS__)>)
     if constexpr SIGNATURE_CHECK(RimeCustomSettings*, const char*, const char*) {
       const char* param1 = luaL_checkstring(L, 2);
       const char* param2 = luaL_checkstring(L, 3);
       RimeCustomSettings* settings = func_ptr(param1, param2);
-      RimeCustomSettingsReg::push_from_raw(L, settings);
+      push_from_raw<RimeCustomSettings>(L, settings);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeCustomSettings*) {
       RimeCustomSettings* settings = lua_to_custom_settings(L, 2);
@@ -2135,7 +2042,7 @@ namespace RimeLeversApiReg {
     } else if constexpr SIGNATURE_CHECK(RimeSwitcherSettings*, ) {
       // switcher_settings_init()
       RimeSwitcherSettings* settings = func_ptr();
-      RimeSwitcherSettingsReg::push_from_raw(L, settings);
+      push_from_raw<RimeSwitcherSettings>(L, settings);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeSwitcherSettings*) {
       RimeSwitcherSettings* settings = smart_shared_ptr_todata<RimeSwitcherSettings>(L, 2);
@@ -2219,7 +2126,7 @@ namespace RimeLeversApiReg {
       // get_schema_* (id/name/version/author/description/file_path)
       RimeSchemaInfo* info = smart_shared_ptr_todata<RimeSchemaInfo>(L, 2);
       const char* s = func_ptr(info);
-      if (s) lua_pushstring(L, s); else lua_pushnil(L);
+      PUSH_VALUE_OR_NIL(L, s, s != nullptr, lua_pushstring);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSwitcherSettings*, const char*[], int) {
       // select_schemas(settings, const char* schema_id_list[], int count)
@@ -2244,7 +2151,7 @@ namespace RimeLeversApiReg {
       // get_hotkeys
       RimeSwitcherSettings* settings = smart_shared_ptr_todata<RimeSwitcherSettings>(L, 2);
       const char* s = func_ptr(settings);
-      if (s) lua_pushstring(L, s); else lua_pushnil(L);
+      PUSH_VALUE_OR_NIL(L, s, s != nullptr, lua_pushstring);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSwitcherSettings*, const char*) {
       // set_hotkeys
@@ -2265,7 +2172,7 @@ namespace RimeLeversApiReg {
     } else if constexpr SIGNATURE_CHECK(const char*, RimeUserDictIterator*) {
       RimeUserDictIterator* iter = smart_shared_ptr_todata<RimeUserDictIterator>(L, 2);
       const char* s = func_ptr(iter);
-      if (s) lua_pushstring(L, s); else lua_pushnil(L);
+      PUSH_VALUE_OR_NIL(L, s, s != nullptr, lua_pushstring);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, const char*) {
       const char* name = luaL_checkstring(L, 2);
@@ -2289,9 +2196,7 @@ namespace RimeLeversApiReg {
       luaL_error(L, "Unsupported function signature for function: %s", func_name);
       return 0;
     }
-#undef SIGNATURE_CHECK
   }
-#define WRAP_API_FUNC_LEVERS(func) call_function_pointer<&T::func, func##_func_name>
 
   static int raw_make(lua_State *L) {
     T *t = RIMELEVERSAPI;
@@ -2305,44 +2210,46 @@ namespace RimeLeversApiReg {
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = {
-    {"custom_settings_init", WRAP_API_FUNC_LEVERS(custom_settings_init)},
-    {"custom_settings_destroy", WRAP_API_FUNC_LEVERS(custom_settings_destroy)},
-    {"load_settings", WRAP_API_FUNC_LEVERS(load_settings)},
-    {"save_settings", WRAP_API_FUNC_LEVERS(save_settings)},
-    {"customize_bool", WRAP_API_FUNC_LEVERS(customize_bool)},
-    {"customize_int", WRAP_API_FUNC_LEVERS(customize_int)},
-    {"customize_double", WRAP_API_FUNC_LEVERS(customize_double)},
-    {"customize_string", WRAP_API_FUNC_LEVERS(customize_string)},
-    {"is_first_run", WRAP_API_FUNC_LEVERS(is_first_run)},
-    {"settings_is_modified", WRAP_API_FUNC_LEVERS(settings_is_modified)},
-    {"settings_get_config", WRAP_API_FUNC_LEVERS(settings_get_config)},
-    {"switcher_settings_init", WRAP_API_FUNC_LEVERS(switcher_settings_init)},
-    {"get_available_schema_list", WRAP_API_FUNC_LEVERS(get_available_schema_list)},
-    {"get_selected_schema_list", WRAP_API_FUNC_LEVERS(get_selected_schema_list)},
-    {"schema_list_destroy", WRAP_API_FUNC_LEVERS(schema_list_destroy)},
-    {"get_schema_id", WRAP_API_FUNC_LEVERS(get_schema_id)},
-    {"get_schema_name", WRAP_API_FUNC_LEVERS(get_schema_name)},
-    {"get_schema_version", WRAP_API_FUNC_LEVERS(get_schema_version)},
-    {"get_schema_author", WRAP_API_FUNC_LEVERS(get_schema_author)},
-    {"get_schema_description", WRAP_API_FUNC_LEVERS(get_schema_description)},
-    {"get_schema_file_path", WRAP_API_FUNC_LEVERS(get_schema_file_path)},
-    {"select_schemas", WRAP_API_FUNC_LEVERS(select_schemas)},
-    {"get_hotkeys", WRAP_API_FUNC_LEVERS(get_hotkeys)},
-    {"set_hotkeys", WRAP_API_FUNC_LEVERS(set_hotkeys)},
-    {"user_dict_iterator_init", WRAP_API_FUNC_LEVERS(user_dict_iterator_init)},
-    {"user_dict_iterator_destroy", WRAP_API_FUNC_LEVERS(user_dict_iterator_destroy)},
-    {"next_user_dict", WRAP_API_FUNC_LEVERS(next_user_dict)},
-    {"backup_user_dict", WRAP_API_FUNC_LEVERS(backup_user_dict)},
-    {"restore_user_dict", WRAP_API_FUNC_LEVERS(restore_user_dict)},
-    {"export_user_dict", WRAP_API_FUNC_LEVERS(export_user_dict)},
-    {"import_user_dict", WRAP_API_FUNC_LEVERS(import_user_dict)},
-    {"customize_item", WRAP_API_FUNC_LEVERS(customize_item)},
+    {"custom_settings_init", WRAP_API_FUNC(custom_settings_init)},
+    {"custom_settings_destroy", WRAP_API_FUNC(custom_settings_destroy)},
+    {"load_settings", WRAP_API_FUNC(load_settings)},
+    {"save_settings", WRAP_API_FUNC(save_settings)},
+    {"customize_bool", WRAP_API_FUNC(customize_bool)},
+    {"customize_int", WRAP_API_FUNC(customize_int)},
+    {"customize_double", WRAP_API_FUNC(customize_double)},
+    {"customize_string", WRAP_API_FUNC(customize_string)},
+    {"is_first_run", WRAP_API_FUNC(is_first_run)},
+    {"settings_is_modified", WRAP_API_FUNC(settings_is_modified)},
+    {"settings_get_config", WRAP_API_FUNC(settings_get_config)},
+    {"switcher_settings_init", WRAP_API_FUNC(switcher_settings_init)},
+    {"get_available_schema_list", WRAP_API_FUNC(get_available_schema_list)},
+    {"get_selected_schema_list", WRAP_API_FUNC(get_selected_schema_list)},
+    {"schema_list_destroy", WRAP_API_FUNC(schema_list_destroy)},
+    {"get_schema_id", WRAP_API_FUNC(get_schema_id)},
+    {"get_schema_name", WRAP_API_FUNC(get_schema_name)},
+    {"get_schema_version", WRAP_API_FUNC(get_schema_version)},
+    {"get_schema_author", WRAP_API_FUNC(get_schema_author)},
+    {"get_schema_description", WRAP_API_FUNC(get_schema_description)},
+    {"get_schema_file_path", WRAP_API_FUNC(get_schema_file_path)},
+    {"select_schemas", WRAP_API_FUNC(select_schemas)},
+    {"get_hotkeys", WRAP_API_FUNC(get_hotkeys)},
+    {"set_hotkeys", WRAP_API_FUNC(set_hotkeys)},
+    {"user_dict_iterator_init", WRAP_API_FUNC(user_dict_iterator_init)},
+    {"user_dict_iterator_destroy", WRAP_API_FUNC(user_dict_iterator_destroy)},
+    {"next_user_dict", WRAP_API_FUNC(next_user_dict)},
+    {"backup_user_dict", WRAP_API_FUNC(backup_user_dict)},
+    {"restore_user_dict", WRAP_API_FUNC(restore_user_dict)},
+    {"export_user_dict", WRAP_API_FUNC(export_user_dict)},
+    {"import_user_dict", WRAP_API_FUNC(import_user_dict)},
+    {"customize_item", WRAP_API_FUNC(customize_item)},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_get[] = { {nullptr, nullptr} };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
-#undef WRAP_API_FUNC_LEVERS
 }
+#undef SIGNATURE_CHECK
+#undef WRAP_API_FUNC
+#undef DECLARE_FUNC_NAME_VAR
 
 static int os_trymkdir(lua_State* L) {
   const char* path = luaL_checkstring(L, 1);
