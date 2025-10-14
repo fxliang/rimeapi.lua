@@ -409,9 +409,7 @@ namespace RimeCompositionReg {
     {"preedit", SMART_GET(T, preedit)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeCandidateReg {
@@ -440,9 +438,7 @@ namespace RimeCandidateReg {
     {"comment", SMART_GET(T, comment)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 std::string strzbool(bool b) { return b ? "true" : "false"; }
@@ -508,9 +504,7 @@ namespace RimeMenuReg {
     {"select_keys", SMART_GET(T, select_keys)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeCommitReg {
@@ -535,9 +529,7 @@ namespace RimeCommitReg {
     {"text", SMART_GET(T, text)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeContextReg {
@@ -547,9 +539,7 @@ namespace RimeContextReg {
     {"RimeContext", raw_make<T>},
     {nullptr, nullptr}
   };
-  static const luaL_Reg methods[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg methods[] = { {nullptr, nullptr} };
   static const luaL_Reg vars_get[] = {
     {"composition", SMART_GET(T, composition)},
     {"menu", SMART_GET(T, menu)},
@@ -557,9 +547,7 @@ namespace RimeContextReg {
     {"select_labels", SMART_GET(T, select_labels)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeStatusReg {
@@ -601,9 +589,7 @@ namespace RimeStatusReg {
     {"is_ascii_punct", SMART_GET_BOOL(T, is_ascii_punct)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeCandidateListIteratorReg {
@@ -617,18 +603,14 @@ namespace RimeCandidateListIteratorReg {
     {"RimeCandidateListIterator", raw_make},
     {nullptr, nullptr}
   };
-  static const luaL_Reg methods[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg methods[] = { {nullptr, nullptr} };
   static const luaL_Reg vars_get[] = {
     {"ptr", SMART_GET(T, ptr)},
     {"index", SMART_GET(T, index)},
     {"candidate", SMART_GET(T, candidate)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeConfigReg {
@@ -759,9 +741,7 @@ namespace RimeConfigReg {
     {"ptr", SMART_GET(T, ptr)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeConfigIteratorReg {
@@ -770,9 +750,7 @@ namespace RimeConfigIteratorReg {
     {"RimeConfigIterator", raw_make<T>},
     {nullptr, nullptr}
   };
-  static const luaL_Reg methods[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg methods[] = { {nullptr, nullptr} };
   static const luaL_Reg vars_get[] = {
     {"list", SMART_GET(T, list)},
     {"map", SMART_GET(T, map)},
@@ -781,9 +759,7 @@ namespace RimeConfigIteratorReg {
     {"path", SMART_GET(T, path)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeSchemaListItemReg {
@@ -838,9 +814,7 @@ namespace RimeSchemaListItemReg {
     {"schema_info", get_reserved},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeSchemaListReg {
@@ -865,17 +839,13 @@ namespace RimeSchemaListReg {
     {"RimeSchemaList", raw_make<T>},
     {nullptr, nullptr}
   };
-  static const luaL_Reg methods[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg methods[] = { {nullptr, nullptr} };
   static const luaL_Reg vars_get[] = {
     {"size", SMART_GET(T, size)},
     {"list", list},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeStringSliceReg {
@@ -889,9 +859,7 @@ namespace RimeStringSliceReg {
     {"RimeStringSlice", raw_make},
     {nullptr, nullptr}
   };
-  static const luaL_Reg methods[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg methods[] = { {nullptr, nullptr} };
   static int str(lua_State* L) {
     T t = LuaType<T>::todata(L, 1);
     auto str = std::string(t.str, t.length);
@@ -903,9 +871,7 @@ namespace RimeStringSliceReg {
     {"length", SMART_GET(T, length)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeCustomApiReg {
@@ -919,15 +885,9 @@ namespace RimeCustomApiReg {
     {"RimeCustomApi", raw_make},
     {nullptr, nullptr}
   };
-  static const luaL_Reg methods[] = {
-    {nullptr, nullptr}
-  };
-  static const luaL_Reg vars_get[] = {
-    {nullptr, nullptr}
-  };
-  static const luaL_Reg vars_set[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg methods[] = { {nullptr, nullptr} };
+  static const luaL_Reg vars_get[] = { {nullptr, nullptr} };
+  static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeModuleReg {
@@ -1894,9 +1854,7 @@ namespace RimeCustomSettingsReg {
     {"RimeCustomSettings", raw_make<T>},
     {nullptr, nullptr}
   };
-  static const luaL_Reg methods[] = {
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg methods[] = { {nullptr, nullptr} };
   static const luaL_Reg vars_get[] = { {nullptr, nullptr} };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
