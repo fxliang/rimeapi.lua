@@ -430,7 +430,7 @@ namespace RimeCandidateReg {
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
-std::string strzbool(bool b) { return b ? "true" : "false"; }
+static std::string strzbool(bool b) { return b ? "true" : "false"; }
 
 namespace RimeMenuReg {
   using T = RimeMenu;
