@@ -60,28 +60,6 @@ static inline void set_config_borrowed(RimeConfig* cfg, bool borrowed) {
 static std::unordered_set<void*> levers_settings_owned;
 static std::mutex levers_settings_mutex;
 
-static inline void mark_levers_settings_destroyed(void* ptr) {
-  if (!ptr) return;
-  std::lock_guard<std::mutex> lk(levers_settings_mutex);
-  levers_settings_owned.erase(ptr);
-}
-
-static inline void destroy_levers_settings(void* ptr) {
-  if (!ptr) return;
-  bool should_destroy = false;
-  {
-    std::lock_guard<std::mutex> lk(levers_settings_mutex);
-    auto it = levers_settings_owned.find(ptr);
-    if (it != levers_settings_owned.end()) {
-      levers_settings_owned.erase(it);
-      should_destroy = true;
-    }
-  }
-  if (should_destroy) {
-    if (auto api = RIMELEVERSAPI) api->custom_settings_destroy(reinterpret_cast<RimeCustomSettings*>(ptr));
-  }
-}
-
 // Generic helper: wrap a levers-owned raw pointer into a shared_ptr with
 // a deleter that calls destroy_levers_settings, then push to Lua.
 template<typename U>
@@ -89,7 +67,19 @@ static void push_from_raw(lua_State* L, U* ptr) {
   if (!ptr) { lua_pushnil(L); return; }
   std::lock_guard<std::mutex> lk(levers_settings_mutex);
   levers_settings_owned.insert(ptr);
-  auto sptr = std::shared_ptr<U>(ptr, [](U* p) { destroy_levers_settings(reinterpret_cast<void*>(p)); });
+  const auto destroy_levers_settings = [](void* ptr) {
+    if (!ptr) return;
+    bool should_destroy = false;
+    std::lock_guard<std::mutex> lk(levers_settings_mutex);
+    auto it = levers_settings_owned.find(ptr);
+    if (it != levers_settings_owned.end()) {
+      levers_settings_owned.erase(it);
+      should_destroy = true;
+    }
+    if (should_destroy)
+      if (auto api = RIMELEVERSAPI) api->custom_settings_destroy(reinterpret_cast<RimeCustomSettings*>(ptr));
+  };
+  auto sptr = std::shared_ptr<U>(ptr, [&](U* p) { destroy_levers_settings(reinterpret_cast<void*>(p)); });
   LuaType<std::shared_ptr<U>>::pushdata(L, sptr);
 }
 // 为char*添加LuaType特化
@@ -1970,6 +1960,11 @@ namespace RimeLeversApiReg {
     if (lua_islightuserdata(L, idx))
       return static_cast<RimeCustomSettings*>(lua_touserdata(L, idx));
     return nullptr;
+  }
+  static inline void mark_levers_settings_destroyed(void* ptr) {
+    if (!ptr) return;
+    std::lock_guard<std::mutex> lk(levers_settings_mutex);
+    levers_settings_owned.erase(ptr);
   }
   template<auto member_ptr, const char* func_name = nullptr>
   static int call_function_pointer(lua_State *L) {
