@@ -2,7 +2,7 @@ local rime_api = RimeApi()
 local traits = RimeTraits()
 traits.app_name = "rimeapi"
 traits.shared_data_dir = "shared"
-traits.user_data_dir = "levers_api_test"
+traits.user_data_dir = "api_test"
 traits.prebuilt_data_dir = "shared"
 traits.distribution_name = "rimeapi"
 traits.distribution_code_name = "rimeapi"
@@ -175,19 +175,35 @@ assert(rime_api:config_get_bool(api_test, "a_bool") == false)
 print('api_test customization bool verified')
 assert(rime_api:config_get_double(api_test, "a_double") == 3.14)
 print('api_test customization double verified')
---[[
-api to be fix
-
-user_dict_iterator_init
-user_dict_iterator_destroy
-next_user_dict
-backup_user_dict
-restore_user_dict
-export_user_dict
-import_user_dict
-
---]]
-
+-------------------------------------------------------------------------------
+local uditer = RimeUserDictIterator()
+assert(uditer ~= nil)
+print('RimeUserDictIterator() passed')
+assert(levers:user_dict_iterator_init(uditer) == true)
+print('levers:user_dict_iterator_init passed')
+while true do
+  local dict = levers:next_user_dict(uditer)
+  if dict == nil then break end
+  print(' > dict_name:', dict)
+end
+print('levers:next_user_dict passed')
+assert(levers:user_dict_iterator_destroy(uditer) == nil)
+print('levers:user_dict_iterator_destroy passed')
+uditer = nil
+rime_api:deployer_initialize(traits)
+assert(levers:export_user_dict('luna_pinyin', 'luna_pinyin.export.txt') ~= nil)
+print('levers:export_user_dict passed')
+assert(levers:import_user_dict('luna_pinyin', 'luna_pinyin.export.txt') ~= nil)
+print('levers:import_user_dict passed')
+assert(levers:backup_user_dict('luna_pinyin') == true)
+print('levers:backup_user_dict passed')
+local snap = (rime_api:get_user_data_sync_dir(512) .. '/luna_pinyin.userdb.txt')
+assert(levers:restore_user_dict(snap) == true)
+print('levers:restore_user_dict passed')
+-------------------------------
+--- cleanup patches
+os.remove('api_test/default.custom.yaml')
+os.remove('api_test/api_test.custom.yaml')
 rime_api:finalize()
 levers = nil
 rime_api = nil
