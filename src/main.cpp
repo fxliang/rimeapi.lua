@@ -1324,7 +1324,7 @@ namespace RimeApiReg {
       Bool result = func_ptr();
       lua_pushboolean(L, result);
       return 1;
-    } else if constexpr (std::is_same_v<FuncType, const char*(*)()> ) {
+    } else if constexpr SIGNATURE_CHECK(const char*) {
       // functions returning const char* with no args (e.g. get_version, get_user_id)
       const char* s = func_ptr();
       PUSH_VALUE_OR_NIL(L, s, s != nullptr, lua_pushstring);
