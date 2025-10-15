@@ -340,6 +340,12 @@ static int raw_make(lua_State *L) {
   LuaType<std::shared_ptr<T>>::pushdata(L, t);
   return 1;
 }
+template <typename T>
+static int raw_make_struct(lua_State *L) {
+  T t;
+  LuaType<T>::pushdata(L, t);
+  return 1;
+}
 
 namespace RimeCompositionReg {
   using T = RimeComposition;
@@ -355,13 +361,8 @@ namespace RimeCompositionReg {
     lua_pushstring(L, repr.c_str());
     return 1;
   }
-  static int raw_make(lua_State *L) {
-    T t;
-    LuaType<T>::pushdata(L, t);
-    return 1;
-  }
   static const luaL_Reg funcs[] = {
-    {"RimeComposition", raw_make},
+    {"RimeComposition", raw_make_struct<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = {
@@ -412,11 +413,6 @@ static std::string strzbool(bool b) { return b ? "true" : "false"; }
 
 namespace RimeMenuReg {
   using T = RimeMenu;
-  static int raw_make(lua_State *L) {
-    T t;
-    LuaType<T>::pushdata(L, t);
-    return 1;
-  }
   static int tostring(lua_State* L) {
     T t = LuaType<T>::todata(L, 1);  // 直接使用值类型
     std::string repr = "{\n";
@@ -454,7 +450,7 @@ namespace RimeMenuReg {
     return 1;
   }
   static const luaL_Reg funcs[] = {
-    {"RimeMenu", raw_make},
+    {"RimeMenu", raw_make_struct<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = {
@@ -561,13 +557,8 @@ namespace RimeStatusReg {
 
 namespace RimeCandidateListIteratorReg {
   using T = RimeCandidateListIterator;
-  static int raw_make(lua_State *L) {
-    T t;
-    LuaType<T>::pushdata(L, t);
-    return 1;
-  }
   static const luaL_Reg funcs[] = {
-    {"RimeCandidateListIterator", raw_make},
+    {"RimeCandidateListIterator", raw_make_struct<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = { {nullptr, nullptr} };
@@ -582,6 +573,23 @@ namespace RimeCandidateListIteratorReg {
 
 namespace RimeConfigReg {
   using T = RimeConfig;
+#define DEFINE_GET_METHOD(name, value_type, pushfunc) \
+  static int name(lua_State* L) { \
+    T* t = smart_shared_ptr_todata<T>(L); \
+    const char* key = luaL_checkstring(L, 2); \
+    value_type value; \
+    PUSH_VALUE_OR_NIL(L, value, RIMEAPI->config_##name(t, key, &value), pushfunc); \
+    return 1; \
+  }
+#define DEFINE_SET_METHOD(name, value_type, checkfunc) \
+  static int name(lua_State* L) { \
+    T* t = smart_shared_ptr_todata<T>(L); \
+    const char* key = luaL_checkstring(L, 2); \
+    value_type value = checkfunc(L, 3); \
+    bool ret = RIMEAPI->config_##name(t, key, value); \
+    lua_pushboolean(L, ret); \
+    return 1; \
+  }
   static int reload(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     // 方法调用时 Lua 堆栈: 1=self (config), 2=new_config_id
@@ -615,13 +623,6 @@ namespace RimeConfigReg {
     lua_pushboolean(L, ret);
     return 1;
   }
-  static int get_int(lua_State* L) {
-    T* t = smart_shared_ptr_todata<T>(L);
-    const char* key = luaL_checkstring(L, 2);
-    int value = 0;
-    PUSH_VALUE_OR_NIL(L, value, RIMEAPI->config_get_int(t, key, &value), lua_pushinteger);
-    return 1;
-  }
   static int get_string(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
@@ -632,20 +633,6 @@ namespace RimeConfigReg {
     PUSH_VALUE_OR_NIL(L, buffer.get(), RIMEAPI->config_get_string(t, key, buffer.get(), buffer_size), lua_pushstring);
     return 1;
   }
-  static int get_bool(lua_State* L) {
-    T* t = smart_shared_ptr_todata<T>(L);
-    const char* key = luaL_checkstring(L, 2);
-    Bool value = false;
-    PUSH_VALUE_OR_NIL(L, (bool)value, RIMEAPI->config_get_bool(t, key, &value), lua_pushboolean);
-    return 1;
-  }
-  static int get_double(lua_State* L) {
-    T* t = smart_shared_ptr_todata<T>(L);
-    const char* key = luaL_checkstring(L, 2);
-    double value = 0.0;
-    PUSH_VALUE_OR_NIL(L, value, RIMEAPI->config_get_double(t, key, &value), lua_pushnumber);
-    return 1;
-  }
   static int get_cstring(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     const char* key = luaL_checkstring(L, 2);
@@ -653,38 +640,13 @@ namespace RimeConfigReg {
     PUSH_VALUE_OR_NIL(L, value, value != nullptr, lua_pushstring);
     return 1;
   }
-  static int set_int(lua_State* L) {
-    T* t = smart_shared_ptr_todata<T>(L);
-    const char* key = luaL_checkstring(L, 2);
-    int value = luaL_checkinteger(L, 3);
-    bool ret = RIMEAPI->config_set_int(t, key, value);
-    lua_pushboolean(L, ret);
-    return 1;
-  }
-  static int set_string(lua_State* L) {
-    T* t = smart_shared_ptr_todata<T>(L);
-    const char* key = luaL_checkstring(L, 2);
-    const char* value = luaL_checkstring(L, 3);
-    bool ret = RIMEAPI->config_set_string(t, key, value);
-    lua_pushboolean(L, ret);
-    return 1;
-  }
-  static int set_bool(lua_State* L) {
-    T* t = smart_shared_ptr_todata<T>(L);
-    const char* key = luaL_checkstring(L, 2);
-    bool value = lua_toboolean(L, 3);
-    bool ret = RIMEAPI->config_set_bool(t, key, value);
-    lua_pushboolean(L, ret);
-    return 1;
-  }
-  static int set_double(lua_State* L) {
-    T* t = smart_shared_ptr_todata<T>(L);
-    const char* key = luaL_checkstring(L, 2);
-    double value = luaL_checknumber(L, 3);
-    bool ret = RIMEAPI->config_set_double(t, key, value);
-    lua_pushboolean(L, ret);
-    return 1;
-  }
+  DEFINE_GET_METHOD(get_int, int, lua_pushinteger)
+  DEFINE_GET_METHOD(get_bool, int, lua_pushboolean)
+  DEFINE_GET_METHOD(get_double, double, lua_pushnumber)
+  DEFINE_SET_METHOD(set_int, int, luaL_checkinteger)
+  DEFINE_SET_METHOD(set_string, const char*, luaL_checkstring)
+  DEFINE_SET_METHOD(set_bool, int, lua_toboolean)
+  DEFINE_SET_METHOD(set_double, double, luaL_checknumber)
   static const luaL_Reg funcs[] = {
     {"RimeConfig", raw_make<T>},
     {nullptr, nullptr}
@@ -731,11 +693,6 @@ namespace RimeConfigIteratorReg {
 
 namespace RimeSchemaListItemReg {
   using T = RimeSchemaListItem;
-  static int raw_make(lua_State *L) {
-    T t;
-    LuaType<T>::pushdata(L, t);
-    return 1;
-  }
   static int tostring(lua_State* L) {
     T t = LuaType<T>::todata(L, 1);  // 直接使用值类型
     std::string repr = "";
@@ -768,7 +725,7 @@ namespace RimeSchemaListItemReg {
     return 1;
   }
   static const luaL_Reg funcs[] = {
-    {"RimeSchemaListItem", raw_make},
+    {"RimeSchemaListItem", raw_make_struct<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = {
@@ -817,13 +774,8 @@ namespace RimeSchemaListReg {
 
 namespace RimeStringSliceReg {
   using T = RimeStringSlice;
-  static int raw_make(lua_State *L) {
-    T t;
-    LuaType<T>::pushdata(L, t);
-    return 1;
-  }
   static const luaL_Reg funcs[] = {
-    {"RimeStringSlice", raw_make},
+    {"RimeStringSlice", raw_make_struct<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = { {nullptr, nullptr} };
@@ -843,13 +795,8 @@ namespace RimeStringSliceReg {
 
 namespace RimeCustomApiReg {
   using T = RimeCustomApi;
-  static int raw_make(lua_State *L) {
-    T t;
-    LuaType<T>::pushdata(L, t);
-    return 1;
-  }
   static const luaL_Reg funcs[] = {
-    {"RimeCustomApi", raw_make},
+    {"RimeCustomApi", raw_make<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = { {nullptr, nullptr} };
@@ -859,14 +806,8 @@ namespace RimeCustomApiReg {
 
 namespace RimeModuleReg {
   using T = RimeModule;
-  static int raw_make(lua_State *L) {
-    T t;
-    RIME_STRUCT_INIT(T, t);
-    LuaType<T>::pushdata(L, t);
-    return 1;
-  }
   static const luaL_Reg funcs[] = {
-    {"RimeModule", raw_make},
+    {"RimeModule", raw_make<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = {
