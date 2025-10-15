@@ -204,6 +204,7 @@ print('levers:restore_user_dict passed')
 --- cleanup patches
 os.remove('api_test/default.custom.yaml')
 os.remove('api_test/api_test.custom.yaml')
+os.remove('luna_pinyin.export.txt')
 rime_api:finalize()
 levers = nil
 rime_api = nil
