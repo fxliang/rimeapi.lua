@@ -7,6 +7,9 @@
 #include <filesystem>
 #include <unordered_set>
 #include <iostream>
+#ifdef __GNUC__
+#include <cxxabi.h>
+#endif
 #ifdef _WIN32
 #include <windows.h>
 inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = CP_UTF8) {
@@ -347,6 +350,22 @@ static int raw_make_struct(lua_State *L) {
   return 1;
 }
 
+template <typename T>
+static int type(lua_State* L) {
+#ifdef __GNUC__
+    const char* mangled = LuaType<T>::type()->name();
+    int status = 0;
+    char* demangled = abi::__cxa_demangle(mangled, nullptr, nullptr, &status);
+    if (status == 0 && demangled) {
+      lua_pushstring(L, demangled);
+      free(demangled);
+      return 1;
+    }
+#endif
+    lua_pushstring(L, LuaType<std::shared_ptr<T>>::type()->name());
+    return 1;
+  }
+
 namespace RimeCompositionReg {
   using T = RimeComposition;
   static int tostring(lua_State* L) {
@@ -404,6 +423,7 @@ namespace RimeCandidateReg {
   static const luaL_Reg vars_get[] = {
     {"text", SMART_GET(T, text)},
     {"comment", SMART_GET(T, comment)},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -490,6 +510,7 @@ namespace RimeCommitReg {
   };
   static const luaL_Reg vars_get[] = {
     {"text", SMART_GET(T, text)},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -508,6 +529,7 @@ namespace RimeContextReg {
     {"menu", SMART_GET(T, menu)},
     {"commit_text_preview", SMART_GET(T, commit_text_preview)},
     {"select_labels", SMART_GET(T, select_labels)},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -550,6 +572,7 @@ namespace RimeStatusReg {
     {"is_simplified", SMART_GET_BOOL(T, is_simplified)},
     {"is_traditional", SMART_GET_BOOL(T, is_traditional)},
     {"is_ascii_punct", SMART_GET_BOOL(T, is_ascii_punct)},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -668,6 +691,7 @@ namespace RimeConfigReg {
   };
   static const luaL_Reg vars_get[] = {
     {"ptr", SMART_GET(T, ptr)},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -686,6 +710,7 @@ namespace RimeConfigIteratorReg {
     {"index", SMART_GET(T, index)},
     {"key", SMART_GET(T, key)},
     {"path", SMART_GET(T, path)},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -767,6 +792,7 @@ namespace RimeSchemaListReg {
   static const luaL_Reg vars_get[] = {
     {"size", SMART_GET(T, size)},
     {"list", list},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -793,6 +819,14 @@ namespace RimeStringSliceReg {
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
+// Macro to declare function name variable
+#define DECLARE_FUNC_NAME_VAR(name) \
+  static constexpr const char name##_func_name[] = #name;
+// Macro to create function pointer wrappers, with function name info
+#define WRAP_API_FUNC(func) call_function_pointer<&T::func, func##_func_name>
+// Macro to check function signature
+#define SIGNATURE_CHECK(ret, ...) (std::is_same_v<FuncType, ret(*)(__VA_ARGS__)>)
+
 namespace RimeCustomApiReg {
   using T = RimeCustomApi;
   static const luaL_Reg funcs[] = {
@@ -800,25 +834,60 @@ namespace RimeCustomApiReg {
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = { {nullptr, nullptr} };
-  static const luaL_Reg vars_get[] = { {nullptr, nullptr} };
+  static const luaL_Reg vars_get[] = {
+    {"type", type<std::shared_ptr<T>>},
+    {nullptr, nullptr} };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
 namespace RimeModuleReg {
   using T = RimeModule;
+  DECLARE_FUNC_NAME_VAR(initialize)
+  DECLARE_FUNC_NAME_VAR(finalize)
+  DECLARE_FUNC_NAME_VAR(get_api)
   static const luaL_Reg funcs[] = {
     {"RimeModule", raw_make<T>},
     {nullptr, nullptr}
   };
+  // c function pointer caller
+  template<auto member_ptr, const char* func_name = nullptr>
+  static int call_function_pointer(lua_State* L) {
+    T* api = smart_shared_ptr_todata<T>(L, 1);
+    auto func_ptr = api->*member_ptr;
+    assert(func_name);
+    using FuncType = decltype(func_ptr);
+    if (!func_ptr) {
+      luaL_error(L, "Function pointer for %s is null", func_name);
+      return 0;
+    }
+    if constexpr SIGNATURE_CHECK(void) {
+      func_ptr();
+      lua_pushnil(L);
+      return 1;
+    } else if constexpr SIGNATURE_CHECK(RimeCustomApi*) {
+      RimeCustomApi* result = func_ptr();
+      if (!result)
+        lua_pushnil(L);
+      else {
+        auto sptr = std::shared_ptr<RimeCustomApi>(result, [](RimeCustomApi* p){});
+        LuaType<std::shared_ptr<RimeCustomApi>>::pushdata(L, sptr);
+      }
+      return 1;
+    } else {
+      luaL_error(L, "Unsupported function signature for %s", func_name);
+      return 0;
+    }
+  }
   static const luaL_Reg methods[] = {
     // wrap function pointers as lightuserdata
-    {"initialize", WRAPMEM_GET(T::initialize)},
-    {"finalize", WRAPMEM_GET(T::finalize)},
-    {"get_api", WRAPMEM_GET(T::get_api)},
+    {"initialize", WRAP_API_FUNC(initialize)},
+    {"finalize", WRAP_API_FUNC(finalize)},
+    {"get_api", WRAP_API_FUNC(get_api)},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_get[] = {
     {"module_name", SMART_GET(T, module_name)},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = {
@@ -877,6 +946,7 @@ namespace RimeTraitsReg {
     {"log_dir", SMART_GET(T, log_dir)},
     {"prebuilt_data_dir", SMART_GET(T, prebuilt_data_dir)},
     {"staging_dir", SMART_GET(T, staging_dir)},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = {
@@ -894,14 +964,6 @@ namespace RimeTraitsReg {
     {nullptr, nullptr}
   };
 }
-
-// Macro to declare function name variable
-#define DECLARE_FUNC_NAME_VAR(name) \
-  static constexpr const char name##_func_name[] = #name;
-// Macro to create function pointer wrappers, with function name info
-#define WRAP_API_FUNC(func) call_function_pointer<&T::func, func##_func_name>
-// Macro to check function signature
-#define SIGNATURE_CHECK(ret, ...) (std::is_same_v<FuncType, ret(*)(__VA_ARGS__)>)
 
 namespace RimeApiReg {
   using T = RimeApi;
@@ -988,7 +1050,7 @@ namespace RimeApiReg {
 
   // Module
   //DECLARE_FUNC_NAME_VAR(register_module)
-  //DECLARE_FUNC_NAME_VAR(find_module)
+  DECLARE_FUNC_NAME_VAR(find_module)
   DECLARE_FUNC_NAME_VAR(run_task)
 
   // Directory functions
@@ -1200,6 +1262,17 @@ namespace RimeApiReg {
     if constexpr SIGNATURE_CHECK(void) {
       func_ptr();
       return 0;
+    } else if constexpr SIGNATURE_CHECK(RimeModule*, const char*) {
+      // find_module
+      const char* module_name = luaL_checkstring(L, 2);
+      RimeModule* module = func_ptr(module_name);
+      if (module) {
+        auto sptr = std::shared_ptr<RimeModule>(module, [](RimeModule*){});
+        LuaType<std::shared_ptr<RimeModule>>::pushdata(L, sptr);
+      } else {
+        lua_pushnil(L);
+      }
+      return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeTraits*) {
       RimeTraits* traits = smart_shared_ptr_todata<RimeTraits>(L, 2);
       func_ptr(traits);
@@ -1720,7 +1793,7 @@ namespace RimeApiReg {
 
     // Module management
     //{"register_module", WRAP_API_FUNC(register_module)},
-    //{"find_module", WRAP_API_FUNC(find_module)},
+    {"find_module", WRAP_API_FUNC(find_module)},
     {"run_task", WRAP_API_FUNC(run_task)},
 
     // Directory paths (deprecated versions)
@@ -1752,7 +1825,9 @@ namespace RimeApiReg {
 
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_get[] = { {nullptr, nullptr} };
+  static const luaL_Reg vars_get[] = {
+    {"type", type<std::shared_ptr<T>>},
+    {nullptr, nullptr} };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
@@ -1763,7 +1838,9 @@ namespace RimeCustomSettingsReg {
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = { {nullptr, nullptr} };
-  static const luaL_Reg vars_get[] = { {nullptr, nullptr} };
+  static const luaL_Reg vars_get[] = {
+    {"type", type<std::shared_ptr<T>>},
+    {nullptr, nullptr} };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
@@ -1774,7 +1851,9 @@ namespace RimeSwitcherSettingsReg {
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = { {nullptr, nullptr} };
-  static const luaL_Reg vars_get[] = { {nullptr, nullptr} };
+  static const luaL_Reg vars_get[] = {
+    {"type", type<std::shared_ptr<T>>},
+    {nullptr, nullptr} };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
@@ -1816,6 +1895,7 @@ namespace RimeSchemaInfoReg {
     {"schema_id", get_id},
     {"version", get_version},
     {"file_path", get_file_path},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -1829,7 +1909,9 @@ namespace RimeUserDictIteratorReg {
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = { {nullptr, nullptr} };
-  static const luaL_Reg vars_get[] = { {nullptr, nullptr} };
+  static const luaL_Reg vars_get[] = {
+    {"type", type<std::shared_ptr<T>>},
+    {nullptr, nullptr} };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 
@@ -2090,7 +2172,16 @@ namespace RimeLeversApiReg {
       return 0;
     }
   }
-
+  static int to_rime_levers_api(lua_State *L) {
+    RimeCustomApi* t = smart_shared_ptr_todata<RimeCustomApi>(L);
+    if (!t) {
+      lua_pushnil(L);
+      return 1;
+    }
+    auto api_ptr = std::shared_ptr<T>((RimeLeversApi*)t, [](T*){});
+    LuaType<std::shared_ptr<T>>::pushdata(L, api_ptr);
+    return 1;
+  }
   static int raw_make(lua_State *L) {
     T *t = RIMELEVERSAPI;
     // 将API指针包装到shared_ptr中进行管理
@@ -2100,6 +2191,7 @@ namespace RimeLeversApiReg {
   }
   static const luaL_Reg funcs[] = {
     {"RimeLeversApi", raw_make},
+    {"ToRimeLeversApi", to_rime_levers_api},
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = {
@@ -2137,7 +2229,9 @@ namespace RimeLeversApiReg {
     {"customize_item", WRAP_API_FUNC(customize_item)},
     {nullptr, nullptr}
   };
-  static const luaL_Reg vars_get[] = { {nullptr, nullptr} };
+  static const luaL_Reg vars_get[] = {
+    {"type", type<std::shared_ptr<T>>},
+    {nullptr, nullptr} };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
 }
 #undef SIGNATURE_CHECK

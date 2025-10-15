@@ -440,6 +440,14 @@ local BIT = jit and ((require('ffi').sizeof('void*') == 8) and 16 or 8) or ((str
 local PFORMAT = "%0" .. BIT .. "X"
 assert(string.format(PFORMAT, session.id) == session.str)
 ----------------------------------------------------------------
+local levers2 = ToRimeLeversApi(rime_api:find_module('levers'):get_api())
+assert(levers2 ~= nil)
+assert(RimeLeversApi().type == levers2.type)
+assert(rime_api:find_module('levers'):get_api().type == RimeCustomApi().type)
+print('rime_api:find_module passed')
+print('RimeModuleReg::method get_api passed')
+print('ToRimeLeversApi() passed')
+----------------------------------------------------------------
 assert(rime_api:deployer_initialize(traits) == nil)
 print('rime_api:deployer_initialize passed')
 assert(rime_api:sync_user_data() == true)
