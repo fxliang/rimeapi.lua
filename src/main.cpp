@@ -252,19 +252,18 @@ static T* smart_shared_ptr_todata(lua_State *L, int index = 1) {
 
 // Lua userdata wrapper for RimeSessionId so session is destroyed on GC.
 struct RimeSessionStruct { RimeSessionId id{0}; };
-static const char *RIME_SESSION_MT = "__RimeSessionId";
 static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
   if (!id) { lua_pushnil(L); return; }
   void *u = lua_newuserdata(L, sizeof(RimeSessionStruct));
   RimeSessionStruct *s = new(u) RimeSessionStruct();
   s->id = id;
   const auto ensure_rime_session_mt = [](lua_State *L) {
-    luaL_getmetatable(L, RIME_SESSION_MT);
+    luaL_getmetatable(L, "__RimeSessionId");
     if (lua_isnil(L, -1)) {
       lua_pop(L, 1);
-      luaL_newmetatable(L, RIME_SESSION_MT);
+      luaL_newmetatable(L, "__RimeSessionId");
       lua_pushcfunction(L, [](lua_State *L)->int {
-          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, RIME_SESSION_MT);
+          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, "__RimeSessionId");
           if (s && s->id) {
             if (auto api = RIMEAPI) api->destroy_session(s->id);
             s->id = 0;
@@ -274,7 +273,7 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
       lua_setfield(L, -2, "__gc");
       // push a __index function to get id by .id
       lua_pushcfunction(L, [](lua_State *L)->int {
-          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, RIME_SESSION_MT);
+          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, "__RimeSessionId");
           const char* key = luaL_checkstring(L, 2);
           if (strcmp(key, "id") == 0) {
             PUSH_VALUE_OR_NIL(L, (lua_Integer)s->id, s && s->id, lua_pushinteger);
@@ -290,13 +289,13 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
           return 1;
         });
       lua_setfield(L, -2, "__index");
-      lua_pushlightuserdata(L, (void*)RIME_SESSION_MT);
+      lua_pushlightuserdata(L, (void*)"__RimeSessionId");
       lua_setfield(L, -2, "type");
     }
     lua_pop(L, 1);
   };
   ensure_rime_session_mt(L);
-  luaL_setmetatable(L, RIME_SESSION_MT);
+  luaL_setmetatable(L, "__RimeSessionId");
 }
 static RimeSessionId RimeSession_todata(lua_State *L, int idx) {
   if (lua_isnil(L, idx)) return 0;
@@ -304,8 +303,8 @@ static RimeSessionId RimeSession_todata(lua_State *L, int idx) {
     lua_Number n = lua_tonumber(L, idx);
     if (n == (lua_Number)(RimeSessionId)n) return (RimeSessionId)n;
   }
-  if (luaL_testudata(L, idx, RIME_SESSION_MT)) {
-    RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, idx, RIME_SESSION_MT);
+  if (luaL_testudata(L, idx, "__RimeSessionId")) {
+    RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, idx, "__RimeSessionId");
     return s ? s->id : 0;
   }
   if (lua_isnumber(L, idx)) return (RimeSessionId)lua_tointeger(L, idx);
