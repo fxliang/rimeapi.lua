@@ -2376,8 +2376,7 @@ int main(int argc, char* argv[]) {
       api->custom_settings_destroy(reinterpret_cast<RimeCustomSettings*>(p));
     }
   };
-  int ret = 0;
-  if (script.empty()) {
+  const auto repl = [](lua_State* L) {
     // Lua-like interactive mode
     printf("Rime Lua API interactive mode. Ctrl-c to exit.\n");
     while (true) {
@@ -2392,23 +2391,18 @@ int main(int argc, char* argv[]) {
         if (luaL_loadstring(L, expr.c_str()) == LUA_OK) compiled = true;
         else lua_settop(L, base);  // drop error message 
       }
-
-      if (!compiled) {
-        if (luaL_loadstring(L, line.c_str()) != LUA_OK) {
-          const char *msg = lua_tostring(L, -1);
-          printf("Error: %s\n", msg ? msg : "unknown error");
-          lua_settop(L, base);
-          continue;
-        }
+      if (!compiled && (luaL_loadstring(L, line.c_str()) != LUA_OK)) {
+        const char *msg = lua_tostring(L, -1);
+        printf("Error: %s\n", msg ? msg : "unknown error");
+        lua_settop(L, base);
+        continue;
       }
-
       if (lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK) {
         const char *msg = lua_tostring(L, -1);
         printf("Error: %s\n", msg ? msg : "unknown error");
         lua_settop(L, base);
         continue;
       }
-
       int nresults = lua_gettop(L) - base;
       for (int i = 1; i <= nresults; ++i) {
         int idx = base + i;
@@ -2426,6 +2420,10 @@ int main(int argc, char* argv[]) {
       }
       lua_settop(L, base);
     }
+  };
+  int ret = 0;
+  if (script.empty()) {
+    repl(L);
   } else if (luaL_dofile(L, script.c_str())) {
     const char *msg = lua_tostring(L, -1);
     printf("Error: %s\n", msg);
