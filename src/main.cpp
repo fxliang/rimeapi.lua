@@ -2267,23 +2267,13 @@ static void register_rime_bindings(lua_State *L) {
 
 #ifdef WIN32
 #define FREE_RIME() do { if (librime) { FreeLibrary(librime); librime = nullptr; } } while(0)
-#define RIME_LIBRARY_NAME "rime.dll"
-#define RIME_LIBRARY_NAME_MINGW "librime.dll"
-#define LOAD_RIME_LIBRARY() (LoadLibraryA(RIME_LIBRARY_NAME) ? LoadLibraryA(RIME_LIBRARY_NAME) : LoadLibraryA(RIME_LIBRARY_NAME_MINGW))
+#define LOAD_RIME_LIBRARY() (LoadLibraryA("rime.dll") ? LoadLibraryA("rime.dll") : LoadLibraryA("librime.dll"))
 #define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(GetProcAddress(handle, "rime_get_api"))
-#define CLOSE_RIME_LIBRARY(handle) FreeLibrary(handle)
-#define REPORT_LOAD_ERROR() fprintf(stderr, "Error: failed to load %s\n", RIME_LIBRARY_NAME)
-#define REPORT_SYMBOL_ERROR() fprintf(stderr, "Error: failed to find rime_get_api in %s\n", RIME_LIBRARY_NAME)
 #define CLEAR_RIME_ERROR() ((void)0)
 #else
 #define FREE_RIME() do { if (librime) { dlclose(librime); librime = nullptr; } } while(0)
-#define RIME_LIBRARY_NAME "librime.so"
-#define RIME_LIBRARY_NAME_MAC "librime.dylib"
-#define LOAD_RIME_LIBRARY() (dlopen(RIME_LIBRARY_NAME, RTLD_LAZY | RTLD_LOCAL) ? dlopen(RIME_LIBRARY_NAME, RTLD_LAZY | RTLD_LOCAL) : dlopen(RIME_LIBRARY_NAME_MAC, RTLD_LAZY | RTLD_LOCAL))
+#define LOAD_RIME_LIBRARY() (dlopen("librime.so", RTLD_LAZY | RTLD_LOCAL) ? dlopen("librime.so", RTLD_LAZY | RTLD_LOCAL) : dlopen("librime.dylib", RTLD_LAZY | RTLD_LOCAL))
 #define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(dlsym(handle, "rime_get_api"))
-#define CLOSE_RIME_LIBRARY(handle) dlclose(handle)
-#define REPORT_LOAD_ERROR() fprintf(stderr, "Error: failed to load %s: %s\n", RIME_LIBRARY_NAME, dlerror())
-#define REPORT_SYMBOL_ERROR() fprintf(stderr, "Error: failed to find rime_get_api in %s: %s\n", RIME_LIBRARY_NAME, dlerror())
 #define CLEAR_RIME_ERROR() ((void)dlerror())
 #endif
 
@@ -2291,22 +2281,20 @@ void get_api() {
   if (rime_api) return;
   librime = LOAD_RIME_LIBRARY();
   if (!librime) {
-    REPORT_LOAD_ERROR();
+    fprintf(stderr, "Error: failed to load librime\n");
     return;
   }
   CLEAR_RIME_ERROR();
   RimeGetApi loader = LOAD_RIME_FUNCTION(librime);
   if (!loader) {
-    REPORT_SYMBOL_ERROR();
-    CLOSE_RIME_LIBRARY(librime);
-    librime = nullptr;
+    fprintf(stderr, "Error: failed to find rime_get_api in librime\n");
+    FREE_RIME();
     return;
   }
   rime_api = loader();
   if (!rime_api) {
-    fprintf(stderr, "Error: rime_get_api returned null from %s\n", RIME_LIBRARY_NAME);
-    CLOSE_RIME_LIBRARY(librime);
-    librime = nullptr;
+    fprintf(stderr, "Error: rime_get_api returned null from librime\n");
+    FREE_RIME();
   }
 }
 
