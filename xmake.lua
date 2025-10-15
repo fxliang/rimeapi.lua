@@ -11,14 +11,6 @@ target('core')
 -------------------------------------------------------------------------------
 target('rimeapi.app')
   add_deps('core')
-  if is_plat('windows') then
-    add_linkdirs(is_arch('x64') and 'lib64' or 'lib')
-  end
-  if is_plat('linux') then
-    add_ldflags('-Wl,-rpath,$ORIGIN', {force = true})
-  elseif is_plat('macosx') then
-    add_ldflags('-Wl,-rpath,@loader_path', {force = true})
-  end
   add_files('src/main.cpp')
   add_rules('copy_after_build', 'common_rules')
 
@@ -31,14 +23,6 @@ target('rimeapi')
   set_filename(file_name)
   add_files('src/main.cpp', {defines = 'BUILD_AS_LUA_MODULE'})
   add_deps('core')
-  if is_plat('windows', 'mingw') then
-    add_linkdirs(is_arch('x64', 'x86_64') and 'lib64' or 'lib')
-  end
-  if is_plat('linux') then
-    add_ldflags('-Wl,-rpath,$ORIGIN', {force = true})
-  elseif is_plat('macosx') then
-    add_ldflags('-Wl,-rpath,@loader_path', {force = true})
-  end
   add_rules('copy_after_build', 'common_rules')
 
 -------------------------------------------------------------------------------
@@ -49,12 +33,14 @@ rule('common_rules')
     target:add('packages', 'lua')
     if is_plat('windows', 'mingw') then
       target:add('includedirs', 'include')
+      target:add('linkdirs', (is_arch('x64', 'x86_64') and 'lib64' or 'lib'))
       if is_plat('windows') then
         target:add('cxflags', '/utf-8')
         target:add('cflags', '/utf-8')
       end
     else
       target:add('syslinks', {'pthread', 'dl'})
+      target:add('ldflags', ('-Wl,-rpath,' .. (is_plat('linux') and '$ORIGIN' or '@loader_path')), {force = true})
     end
     target:add('defines', 'RIME_EXPORTS')
     if is_mode('debug') then
