@@ -2287,33 +2287,6 @@ static void register_rime_bindings(lua_State *L) {
 #define CLEAR_RIME_ERROR() ((void)dlerror())
 #endif
 
-static const char* RIME_LIBRARY_GC_KEY = "__rime_library_gc";
-static const char* RIME_LIBRARY_GC_MT = "__rime_library_gc_mt";
-
-static int librime_gc(lua_State* L) {
-  (void)L;
-  rime_api = nullptr;
-  FREE_RIME();
-  return 0;
-}
-
-static void ensure_librime_gc(lua_State* L) {
-  lua_getfield(L, LUA_REGISTRYINDEX, RIME_LIBRARY_GC_KEY);
-  if (!lua_isnil(L, -1)) {
-    lua_pop(L, 1);
-    return;
-  }
-  lua_pop(L, 1);
-  void* ud = lua_newuserdata(L, 0);
-  if (!ud) return;
-  if (luaL_newmetatable(L, RIME_LIBRARY_GC_MT)) {
-    lua_pushcfunction(L, librime_gc);
-    lua_setfield(L, -2, "__gc");
-  }
-  lua_setmetatable(L, -2);
-  lua_setfield(L, LUA_REGISTRYINDEX, RIME_LIBRARY_GC_KEY);
-}
-
 void get_api() {
   if (rime_api) return;
   librime = LOAD_RIME_LIBRARY();
@@ -2338,6 +2311,26 @@ void get_api() {
 }
 
 #if defined(BUILD_AS_LUA_MODULE)
+static void ensure_librime_gc(lua_State* L) {
+  lua_getfield(L, LUA_REGISTRYINDEX, "__rime_library_gc");
+  if (!lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    return;
+  }
+  lua_pop(L, 1);
+  void* ud = lua_newuserdata(L, 0);
+  if (!ud) return;
+  if (luaL_newmetatable(L, "__rime_library_gc_mt")) {
+    lua_pushcfunction(L, [](lua_State* L) -> int {
+        rime_api = nullptr;
+        FREE_RIME();
+        return 0;
+    });
+    lua_setfield(L, -2, "__gc");
+  }
+  lua_setmetatable(L, -2);
+  lua_setfield(L, LUA_REGISTRYINDEX, "__rime_library_gc");
+}
 extern "C" RIME_API int luaopen_rimeapi(lua_State *L) {
   get_api();
   register_rime_bindings(L);
