@@ -394,6 +394,7 @@ namespace RimeCompositionReg {
     {"sel_start", SMART_GET(T, sel_start)},
     {"sel_end", SMART_GET(T, sel_end)},
     {"preedit", SMART_GET(T, preedit)},
+    {"type", type<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -485,6 +486,7 @@ namespace RimeMenuReg {
     {"num_candidates", SMART_GET(T, num_candidates)},
     {"candidates", get_candidates},
     {"select_keys", SMART_GET(T, select_keys)},
+    {"type", type<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -581,7 +583,7 @@ namespace RimeStatusReg {
 namespace RimeCandidateListIteratorReg {
   using T = RimeCandidateListIterator;
   static const luaL_Reg funcs[] = {
-    {"RimeCandidateListIterator", raw_make_struct<T>},
+    {"RimeCandidateListIterator", raw_make<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg methods[] = { {nullptr, nullptr} };
@@ -589,6 +591,7 @@ namespace RimeCandidateListIteratorReg {
     {"ptr", SMART_GET(T, ptr)},
     {"index", SMART_GET(T, index)},
     {"candidate", SMART_GET(T, candidate)},
+    {"type", type<std::shared_ptr<T>>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -761,6 +764,7 @@ namespace RimeSchemaListItemReg {
     {"schema_id", SMART_GET(T, schema_id)},
     {"name", SMART_GET(T, name)},
     {"schema_info", get_reserved},
+    {"type", type<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
@@ -800,10 +804,7 @@ namespace RimeSchemaListReg {
 
 namespace RimeStringSliceReg {
   using T = RimeStringSlice;
-  static const luaL_Reg funcs[] = {
-    {"RimeStringSlice", raw_make_struct<T>},
-    {nullptr, nullptr}
-  };
+  static const luaL_Reg funcs[] = { {nullptr, nullptr} };
   static const luaL_Reg methods[] = { {nullptr, nullptr} };
   static int str(lua_State* L) {
     T t = LuaType<T>::todata(L, 1);
@@ -814,6 +815,7 @@ namespace RimeStringSliceReg {
   static const luaL_Reg vars_get[] = {
     {"str", str},
     {"length", SMART_GET(T, length)},
+    {"type", type<T>},
     {nullptr, nullptr}
   };
   static const luaL_Reg vars_set[] = { {nullptr, nullptr} };
