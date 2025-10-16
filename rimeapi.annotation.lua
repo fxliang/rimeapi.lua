@@ -9,11 +9,13 @@
 ---@field sel_end integer    -- select end
 ---@field preedit string     -- preedit string
 ---@field __tostring fun(self: self): string
+---@field type string
 
 ---@class RimeCandidate
 ---@field text string  -- text of candidate
 ---@field comment string  -- comment of candidate
 ---@field __tostring fun(self: self): string
+---@field type string
 
 ---@class RimeMenu
 ---@field page_size integer -- page size
@@ -24,16 +26,19 @@
 ---@field candidates RimeCandidate[] -- table of candidates
 ---@field select_keys string -- select keys string
 ---@field __tostring fun(self: self): string
+---@field type string
 
 ---@class RimeCommit
 ---@field text string -- text to be committed
 ---@field __tostring fun(self: self): string
+---@field type string
 
 ---@class RimeContext
 ---@field composition RimeComposition
 ---@field menu RimeMenu
 ---@field commit_text_preview string
 ---@field select_labels string
+---@field type string
 
 ---@class RimeStatus
 ---@field schema_id string
@@ -46,11 +51,13 @@
 ---@field is_traditional boolean
 ---@field is_ascii_punct boolean
 ---@field __tostring fun(self: self): string
+---@field type string
 
 ---@class RimeCandidateListIterator
 ---@field ptr lightuserdata
 ---@field index integer -- index of iterator, 0 base
 ---@field candidate RimeCandidate -- candidate of iterator
+---@field type string
 
 ---@class RimeConfig
 ---@field reload fun(self: self, config_name: string): boolean
@@ -65,11 +72,13 @@
 ---@field set_string fun(self: self, key: string, value: string): boolean
 ---@field set_bool fun(self: self, key: string, value: boolean): boolean
 ---@field set_double fun(self: self, key: string, value: number): boolean
+---@field type string
 
 ---@class RimeConfigIterator
 ---@field index integer -- index of iterator, 0 base
 ---@field key string -- key string of iterator
 ---@field path string -- path of iterator
+---@field type string
 
 ---@class RimeSchemaInfo
 ---@field name string
@@ -84,19 +93,23 @@
 ---@field get_schema_description fun(self: self): string
 ---@field get_schema_file_path fun(self: self): string
 ---@field get_schema_version fun(self: self): string
+---@field type string
 
 ---@class RimeSchemaListItem
 ---@field schema_id string
 ---@field name string
 ---@field schema_info RimeSchemaInfo
+---@field type string
 
 ---@class RimeSchemaList
 ---@field size integer
 ---@field list RimeSchemaListItem[]
+---@field type string
 
 ---@class RimeStringSlice
 ---@field str string
 ---@field length integer
+---@field type string
 
 ---@class RimeTraits
 ---@field shared_data_dir string
@@ -109,6 +122,7 @@
 ---@field log_dir string
 ---@field prebuilt_data_dir string
 ---@field staging_dir string
+---@field type string
 
 ---@class RimeCustomApi
 ---@field type string
@@ -117,6 +131,7 @@
 ---@field initialize fun(self: self) :nil
 ---@field finalize fun(self: self) : nil
 ---@field get_api fun(self: self) : RimeCustomApi
+---@field type string
 
 ---@class RimeApi
 ---@field setup fun(self: self, traits: RimeTraits): nil
@@ -214,10 +229,14 @@
 ---@field highlight_candidate fun(self: self, session: RimeSession|integer, index: integer): boolean -- index shall be 0 base
 ---@field highlight_candidate_on_current_page fun(self: self, session: RimeSession|integer, index: integer): boolean -- index shall be 0 base
 ---@field change_page fun(self: self, session: RimeSession|integer, backward: boolean): boolean
+---@field type string
 
 ---@class RimeCustomSettings
+---@field type string
 ---@class RimeSwitcherSettings
+---@field type string
 ---@class RimeUserDictIterator
+---@field type string
 
 
 ---@class RimeLeversApi
@@ -281,3 +300,21 @@ function RimeLeversApi() end
 ---@return RimeLeversApi | nil
 ---@param api RimeCustomApi
 function ToRimeLeversApi(api) end
+---@return RimeModule | nil
+function RimeModule() end
+---@return RimeCustomApi | nil
+function RimeCustomApi() end
+---@return RimeMenu| nil
+function RimeMenu() end
+---@return RimeComposition
+function RimeComposition() end
+---@return RimeCandidate | nil
+function RimeCandidate() end
+---@return RimeSchemaListItem | nil
+function RimeSchemaListItem() end
+---@return RimeCustomSettings | nil
+function RimeCustomSettings() end
+---@return RimeSwitcherSettings | nil
+function RimeSwitcherSettings() end
+---@return RimeUserDictIterator | nil
+function RimeUserDictIterator() end
