@@ -1049,7 +1049,7 @@ namespace RimeApiReg {
   DECLARE_FUNC_NAME_VAR(simulate_key_sequence)
 
   // Module
-  //DECLARE_FUNC_NAME_VAR(register_module)
+  DECLARE_FUNC_NAME_VAR(register_module)
   DECLARE_FUNC_NAME_VAR(find_module)
   DECLARE_FUNC_NAME_VAR(run_task)
 
@@ -1262,6 +1262,11 @@ namespace RimeApiReg {
     if constexpr SIGNATURE_CHECK(void) {
       func_ptr();
       return 0;
+    } else if constexpr SIGNATURE_CHECK(Bool, RimeModule*) {
+      RimeModule* m = smart_shared_ptr_todata<RimeModule>(L, 2);
+      Bool result = func_ptr(m);
+      lua_pushboolean(L, result);
+      return 1;
     } else if constexpr SIGNATURE_CHECK(RimeModule*, const char*) {
       // find_module
       const char* module_name = luaL_checkstring(L, 2);
@@ -1792,7 +1797,7 @@ namespace RimeApiReg {
     {"simulate_key_sequence", WRAP_API_FUNC(simulate_key_sequence)},
 
     // Module management
-    //{"register_module", WRAP_API_FUNC(register_module)},
+    {"register_module", WRAP_API_FUNC(register_module)},
     {"find_module", WRAP_API_FUNC(find_module)},
     {"run_task", WRAP_API_FUNC(run_task)},
 
@@ -2306,7 +2311,7 @@ static void register_rime_bindings(lua_State *L) {
 #define CLEAR_RIME_ERROR() ((void)dlerror())
 #endif
 
-void get_api() {
+static void get_api() {
   if (rime_api) return;
   librime = LOAD_RIME_LIBRARY();
   if (!librime) {

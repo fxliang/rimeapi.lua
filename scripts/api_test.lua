@@ -447,6 +447,10 @@ assert(rime_api:find_module('levers'):get_api().type == RimeCustomApi().type)
 print('rime_api:find_module passed')
 print('RimeModuleReg::method get_api passed')
 print('ToRimeLeversApi() passed')
+-- if your librime build with librime-lua
+-- local lua = rime_api:find_module('lua')
+-- assert(lua ~= nil)
+-- assert(rime_api:register_module(lua) == true)
 ----------------------------------------------------------------
 assert(rime_api:deployer_initialize(traits) == nil)
 print('rime_api:deployer_initialize passed')
