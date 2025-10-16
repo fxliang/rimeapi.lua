@@ -110,6 +110,14 @@
 ---@field prebuilt_data_dir string
 ---@field staging_dir string
 
+---@class RimeCustomApi
+---@field type string
+
+---@class RimeModule
+---@field initialize fun(self: self) :nil
+---@field finalize fun(self: self) : nil
+---@field get_api fun(self: self) : RimeCustomApi
+
 ---@class RimeApi
 ---@field setup fun(self: self, traits: RimeTraits): nil
 ---@field set_notification_handler fun(self: self, handler: (fun(context_object: any, session_id: integer, msg_type: string, msg_value: any)) | nil): nil
@@ -160,6 +168,8 @@
 ---@field config_end fun(self: self, iter: RimeConfigIterator): nil
 ---@field simulate_key_sequence fun(self: self, session: RimeSession|integer, key_sequence: string): boolean
 ---@field run_task fun(self: self, task_name: string): boolean
+---@field find_module fun(self: self, module_name: string) : RimeModule|nil
+---@field register_module fun(self: self, module: RimeModule) : boolean
 ---@field get_shared_data_dir fun(self: self): string
 ---@field get_user_data_dir fun(self: self): string
 ---@field get_sync_dir fun(self: self): string
@@ -243,6 +253,7 @@
 ---@field export_user_dict fun(self: self, dict_name: string, text_file: string): integer
 ---@field import_user_dict fun(self: self, dict_name: string, text_file: string): integer
 ---@field customize_item fun(self: self, settings: RimeCustomSettings, key: string, value: RimeConfig): boolean
+---@field type string
 
 ---@return RimeApi
 function RimeApi() end
@@ -263,6 +274,10 @@ function RimeCandidateListIterator() end
 ---@return RimeTraits
 function RimeTraits() end
 ---@return nil
+---@param path string
 function os.mkdir(path) end
 ---@return RimeLeversApi
 function RimeLeversApi() end
+---@return RimeLeversApi | nil
+---@param api RimeCustomApi
+function ToRimeLeversApi(api) end
