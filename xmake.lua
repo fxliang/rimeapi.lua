@@ -17,7 +17,7 @@ target('rimeapi.app')
 -------------------------------------------------------------------------------
 target('rimeapi_lua')
   set_kind('shared')
-  --set target file name to rimeapi.so or rimeapi.dll
+  --set target file name to rimeapi_lua.so rimeapi_lua.dylib or rimeapi_lua.dll
   local file_name = is_plat('windows') and 'rimeapi_lua.dll'
     or (is_plat('macosx') and 'rimeapi_lua.dylib' or 'rimeapi_lua.so')
   set_filename(file_name)
@@ -72,7 +72,7 @@ rule('copy_after_build')
     if is_plat('windows', 'mingw') then
       os.trycp(is_arch('x64', 'x86_64') and 'lib64\\rime.dll' or 'lib\\rime.dll', os.projectdir())
     end
-    if target:name() == 'rimeapi' then
+    if target:name() == 'rimeapi_lua' then
       local bin_path = target:get('lua_bin_dir')
       if bin_path and os.isdir(bin_path) then
         local lua_bin_name = is_plat('windows', 'mingw') and ('lua' .. '.exe') or 'lua'

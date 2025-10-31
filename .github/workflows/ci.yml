@@ -45,10 +45,16 @@ jobs:
           xmake f -y -p macosx --includedirs=dist/include
           xmake -y
 
+      - name: install luajit
+        run: |
+          brew install luajit
+          luajit -v
+
       - name: test
         run: |
           ./rimeapi.app test.lua api_test levers_api_test
           ./lua test.lua api_test levers_api_test
+          luajit test.lua api_test levers_api_test
 
   build-ubuntu:
     runs-on: ubuntu-latest
@@ -114,10 +120,16 @@ jobs:
         id: build_rimeapi_lua
         run: xmake -y
 
+      - name: install luajit
+        run: |
+          sudo apt install -y luajit
+          luajit -v
+
       - name: test
         run: |
           ./rimeapi.app test.lua api_test levers_api_test
           ./lua test.lua api_test levers_api_test
+          luajit test.lua api_test levers_api_test
 
   build-windows:
     runs-on: windows-latest
@@ -128,6 +140,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: xmake-io/github-action-setup-xmake@v1
       - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
 
       - name: Copy Rime files
         shell: pwsh
@@ -139,8 +153,19 @@ jobs:
         run: |
           xmake f -a ${{ matrix.arch }} -y && xmake -y
 
+      - name: install luajit
+        shell: pwsh
+        run: |
+          git clone -v --depth=1 https://github.com/LuaJIT/LuaJIT
+          pushd .\LuaJIT\src
+          .\msvcbuild.bat
+          popd
+
       - name: run tests
         shell: cmd
+        env:
+          PATH: .\LuaJIT\src\;${{ env.PATH }}
         run: |
           .\rimeapi.app.exe test.lua api_test levers_api_test
           .\lua.exe test.lua api_test levers_api_test
+          luajit.exe test.lua api_test levers_api_test
