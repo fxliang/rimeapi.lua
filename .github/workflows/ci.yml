@@ -56,6 +56,29 @@ jobs:
           ./lua test.lua api_test levers_api_test
           luajit test.lua api_test levers_api_test
 
+      - name: prepare artifact
+        run: |
+          mkdir -p dist
+          cp ./rimeapi.app ./dist/
+          cp ./rimeapi_lua.dylib ./dist/
+          cp ./rimeapi.lua ./dist/
+          cp ./rimeapi_ffi.lua ./dist/
+          cp ./rimeapi.jit.app.lua ./dist/
+          cp ./test.lua ./dist/
+          cp -r ./scripts ./dist/
+          cp -r ./shared ./dist/
+          cp ./rimeapi.annotation.lua ./dist/
+          cp ./README.md ./dist/
+          cp ./rime_api_console.lua ./dist/
+          cp ./librime.*.dylib ./dist/
+          cp -r ./rime-plugins ./dist/
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: rimeapi.lua-macos-dist
+          path: ./dist/
+
   build-ubuntu:
     runs-on: ubuntu-latest
     steps:
@@ -169,3 +192,25 @@ jobs:
           .\rimeapi.app.exe test.lua api_test levers_api_test
           .\lua.exe test.lua api_test levers_api_test
           luajit.exe test.lua api_test levers_api_test
+
+      - name: prepare artifact
+        run: |
+          mkdir dist
+          cp ./rimeapi.app.exe ./dist/
+          cp ./rimeapi_lua.dll ./dist/
+          cp ./rimeapi.lua ./dist/
+          cp ./rimeapi_ffi.lua ./dist/
+          cp ./rimeapi.jit.app.lua ./dist/
+          cp ./test.lua ./dist/
+          cp -r ./scripts ./dist/
+          cp -r ./shared ./dist/
+          cp ./rimeapi.annotation.lua ./dist/
+          cp ./README.md ./dist/
+          cp ./rime_api_console.lua ./dist/
+          cp ./rime.dll ./dist/
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: rimeapi.lua-win${{ matrix.arch }}-dist
+          path: ./dist/
