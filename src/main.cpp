@@ -855,6 +855,10 @@ namespace RimeModuleReg {
   template<auto member_ptr, const char* func_name = nullptr>
   static int call_function_pointer(lua_State* L) {
     T* api = smart_shared_ptr_todata<T>(L, 1);
+    if (!api) {
+      luaL_error(L, "RimeModule is not initialized");
+      return 0;
+    }
     auto func_ptr = api->*member_ptr;
     assert(func_name);
     using FuncType = decltype(func_ptr);
@@ -1256,6 +1260,10 @@ namespace RimeApiReg {
   template<auto member_ptr, const char* func_name = nullptr>
   static int call_function_pointer(lua_State *L) {
     T* api = smart_shared_ptr_todata<T>(L);
+    if (!api) {
+      luaL_error(L, "RimeApi is not initialized");
+      return 0;
+    }
     auto func_ptr = api->*member_ptr;
     assert(func_name);
     // Deduce function signature from member pointer type
@@ -1998,6 +2006,10 @@ namespace RimeLeversApiReg {
   template<auto member_ptr, const char* func_name = nullptr>
   static int call_function_pointer(lua_State *L) {
     T* api = smart_shared_ptr_todata<T>(L);
+    if (!api) {
+      luaL_error(L, "RimeLeversApi is not initialized");
+      return 0;
+    }
     auto func_ptr = api->*member_ptr;
     assert(func_name);
     using FuncType = decltype(func_ptr);
