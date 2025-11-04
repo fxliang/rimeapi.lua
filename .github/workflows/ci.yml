@@ -53,8 +53,11 @@ jobs:
       - name: test
         run: |
           ./rimeapi.app test.lua api_test levers_api_test
+          ./rimeapi.app.lua test.lua api_test levers_api_test
           ./lua test.lua api_test levers_api_test
           luajit test.lua api_test levers_api_test
+          ./lua ./rimeapi.app.lua test.lua api_test levers_api_test
+          luajit ./rimeapi.app.lua test.lua api_test levers_api_test
 
       - name: prepare artifact
         run: |
@@ -151,8 +154,11 @@ jobs:
       - name: test
         run: |
           ./rimeapi.app test.lua api_test levers_api_test
+          ./rimeapi.app.lua test.lua api_test levers_api_test
           ./lua test.lua api_test levers_api_test
           luajit test.lua api_test levers_api_test
+          ./lua ./rimeapi.app.lua test.lua api_test levers_api_test
+          luajit ./rimeapi.app.lua test.lua api_test levers_api_test
 
   build-windows:
     runs-on: windows-latest
@@ -192,6 +198,8 @@ jobs:
           .\rimeapi.app.exe test.lua api_test levers_api_test
           .\lua.exe test.lua api_test levers_api_test
           luajit.exe test.lua api_test levers_api_test
+          luajit.exe .\rimeapi.app.lua test.lua api_test levers_api_test
+          .\lua.exe .\rimeapi.app.lua test.lua api_test levers_api_test
 
       - name: prepare artifact
         run: |
