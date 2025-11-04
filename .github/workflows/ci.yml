@@ -22,12 +22,7 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       
-      - name: install boost
-        run: ./librime/install-boost.sh
-
       - name: setup librime
         run: |
           # get librime 1.14.0 dist
