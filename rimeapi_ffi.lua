@@ -882,9 +882,7 @@ function RimeCommit()
   local mt = {
     __index = function(_, k)
       if k == 'text' then return safestr(obj._c.text)
-      elseif k == 'comment' then return safestr(obj._c.comment)
-      elseif k == 'type' then return 'RimeCommit'
-      end
+      elseif k == 'type' then return 'RimeCommit' end
     end,
     __newindex = function(_, k, v) error("RimeCommit is read-only") end,
     __gc = function()
