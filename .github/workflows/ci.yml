@@ -63,7 +63,7 @@ jobs:
           cp ./rimeapi_lua.dylib ./dist/
           cp ./rimeapi.lua ./dist/
           cp ./rimeapi_ffi.lua ./dist/
-          cp ./rimeapi.jit.app.lua ./dist/
+          cp ./rimeapi.app.lua ./dist/
           cp ./test.lua ./dist/
           cp -r ./scripts ./dist/
           cp -r ./shared ./dist/
@@ -200,7 +200,7 @@ jobs:
           cp ./rimeapi_lua.dll ./dist/
           cp ./rimeapi.lua ./dist/
           cp ./rimeapi_ffi.lua ./dist/
-          cp ./rimeapi.jit.app.lua ./dist/
+          cp ./rimeapi.app.lua ./dist/
           cp ./test.lua ./dist/
           cp -r ./scripts ./dist/
           cp -r ./shared ./dist/
