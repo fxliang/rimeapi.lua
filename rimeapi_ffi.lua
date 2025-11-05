@@ -2022,3 +2022,31 @@ function ToRimeLeversApi(custom_api)
   local ptr = ffi.cast("RimeLeversApi*", custom_api._c)
   return wrap_levers_api(function() return ptr end)
 end
+
+if os.isdir == nil or type(os.isdir) ~= 'function' then
+  os.isdir = function(path)
+    local bit = require("bit")
+    if ffi.os == 'Windows' then
+      ffi.cdef[[
+      typedef unsigned long DWORD;
+      DWORD GetFileAttributesA(const char *lpFileName);
+      ]]
+      local INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
+      local FILE_ATTRIBUTE_DIRECTORY = 0x10
+      local attr = ffi.C.GetFileAttributesA(path)
+      return attr ~= INVALID_FILE_ATTRIBUTES and bit.band(attr, FILE_ATTRIBUTE_DIRECTORY) ~= 0
+    else
+      ffi.cdef[[
+      typedef struct __dirstream DIR;
+      DIR *opendir(const char *name);
+      int closedir(DIR *dirp);
+      ]]
+      local dirp = ffi.C.opendir(path)
+      if dirp ~= nil then
+        ffi.C.closedir(dirp)
+        return true
+      end
+      return false
+    end
+  end
+end

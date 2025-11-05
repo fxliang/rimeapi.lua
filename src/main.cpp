@@ -2277,6 +2277,17 @@ static int os_trymkdir(lua_State* L) {
   return 1;
 }
 
+static int os_isdir(lua_State* L) {
+  const char* path = luaL_checkstring(L, 1);
+  bool ret = false;
+  if (path) {
+    std::filesystem::path p(path);
+    ret = std::filesystem::is_directory(p);
+  }
+  lua_pushboolean(L, ret);
+  return 1;
+}
+
 static void register_rime_bindings(lua_State *L) {
   EXPORT(RimeTraitsReg, L);
   EXPORT(RimeCompositionReg, L);
@@ -2304,6 +2315,8 @@ static void register_rime_bindings(lua_State *L) {
   if (lua_istable(L, -1)) {
     lua_pushcfunction(L, os_trymkdir);
     lua_setfield(L, -2, "mkdir");
+    lua_pushcfunction(L, os_isdir);
+    lua_setfield(L, -2, "isdir");
   }
 #ifdef WIN32
   const auto set_codepage = +[](lua_State* L) -> int {
