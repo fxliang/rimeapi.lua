@@ -2432,6 +2432,13 @@ int main(int argc, char* argv[]) {
   lua_setfield(L, -2, "path");
   lua_pop(L, 1); // remove package table
   lua_newtable(L);
+  // if script is directory, try set script to init.lua inside it
+  if (!script.empty() && std::filesystem::is_directory(sp)) {
+    std::filesystem::path init_path = sp / "init.lua";
+    if (std::filesystem::exists(init_path)) {
+      script = init_path.string();
+    }
+  }
   lua_pushstring(L, script.c_str());
   lua_rawseti(L, -2, 0);
   for (int i = 1; i < argc; ++i) {

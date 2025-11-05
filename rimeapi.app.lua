@@ -86,6 +86,12 @@ end
 local function run_script(script_path, extras)
   ensure_package_path(dirname(script_path))
   set_arg_table(script_path, extras)
+  if os.isdir(script_path) then
+    local init_path = script_path .. path_sep .. 'init.lua'
+    if file_exists(init_path) then
+      script_path = init_path
+    end
+  end
   local chunk, err = loadfile(script_path)
   if not chunk then
     io.stderr:write('Error: ' .. tostring(err) .. '\n')
