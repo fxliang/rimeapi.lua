@@ -53,6 +53,197 @@ end
 
 local path_sep = package.config:sub(1,1) == '\\' and '\\' or '/'
 
+local has_linenoise, linenoise = pcall(require, 'linenoise')
+if not has_linenoise then linenoise = nil end
+
+local function create_posix_line_reader()
+  if package.config:sub(1,1) == '\\' then return nil end
+
+  local function is_tty()
+    local result = os.execute('tty -s >/dev/null 2>&1')
+    return result == true or result == 0
+  end
+
+  local function capture_stty_state()
+    local pipe = io.popen('stty -g', 'r')
+    if not pipe then return nil end
+    local state = pipe:read('*l')
+    pipe:close()
+    return state
+  end
+
+  return function(prompt, history)
+    if not is_tty() then
+      io.write(prompt)
+      io.flush()
+      return io.read('*l')
+    end
+
+    local stty_state = capture_stty_state()
+    if not stty_state or stty_state == '' then
+      io.write(prompt)
+      io.flush()
+      return io.read('*l')
+    end
+
+    local restored = false
+    local function restore_stty()
+      if not restored then
+        os.execute('stty ' .. stty_state)
+        restored = true
+      end
+    end
+
+    local set_raw = os.execute('stty -icanon -echo min 1 time 0')
+    if not (set_raw == true or set_raw == 0) then
+      restore_stty()
+      io.write(prompt)
+      io.flush()
+      return io.read('*l')
+    end
+
+    local function reader_loop()
+      io.write(prompt)
+      io.flush()
+      local buffer = {}
+      local buf_len = 0
+      local saved_draft = ''
+      local history_index = (#history or 0) + 1
+
+      local function history_size()
+        return #history
+      end
+
+      local function current_buffer()
+        if buf_len == 0 then return '' end
+        return table.concat(buffer, '', 1, buf_len)
+      end
+
+      local function set_buffer(text)
+        text = text or ''
+        local prev_len = buf_len
+        buf_len = #text
+        for i = 1, buf_len do
+          buffer[i] = text:sub(i, i)
+        end
+        for i = buf_len + 1, prev_len do
+          buffer[i] = nil
+        end
+      end
+
+      local function refresh_line()
+        io.write('\r')
+        io.write(prompt)
+        io.write(current_buffer())
+        io.write('\27[K')
+        io.flush()
+      end
+
+      local function enter_bottom_mode()
+        history_index = history_size() + 1
+        saved_draft = current_buffer()
+      end
+
+      while true do
+        local char = io.read(1)
+        if not char or char == '' then
+          return nil
+        end
+        local byte = char:byte()
+
+        if byte == 13 or byte == 10 then
+          refresh_line()
+          io.write('\n')
+          io.flush()
+          return current_buffer()
+        elseif byte == 4 then -- Ctrl-D
+          if buf_len == 0 then
+            io.write('\n')
+            io.flush()
+            return nil
+          end
+        elseif byte == 3 then -- Ctrl-C
+          io.write('\n')
+          io.flush()
+          return nil
+        elseif byte == 127 or byte == 8 then -- Backspace/Delete
+          if history_index ~= history_size() + 1 then
+            enter_bottom_mode()
+          end
+          if buf_len > 0 then
+            buffer[buf_len] = nil
+            buf_len = buf_len - 1
+            saved_draft = current_buffer()
+            refresh_line()
+          else
+            io.write('\7')
+            io.flush()
+          end
+        elseif byte == 27 then -- Escape sequences
+          local seq1 = io.read(1)
+          local seq2 = io.read(1)
+          if seq1 == '[' and seq2 then
+            if seq2 == 'A' then -- Up arrow
+              if history_size() == 0 then
+                io.write('\7')
+                io.flush()
+              else
+                if history_index == history_size() + 1 then
+                  saved_draft = current_buffer()
+                end
+                if history_index > 1 then
+                  history_index = history_index - 1
+                else
+                  history_index = 1
+                end
+                set_buffer(history[history_index] or '')
+                refresh_line()
+              end
+            elseif seq2 == 'B' then -- Down arrow
+              if history_size() == 0 or history_index == history_size() + 1 then
+                io.write('\7')
+                io.flush()
+              else
+                history_index = history_index + 1
+                if history_index > history_size() then
+                  history_index = history_size() + 1
+                  set_buffer(saved_draft)
+                else
+                  set_buffer(history[history_index] or '')
+                end
+                refresh_line()
+              end
+            else
+              io.write('\7')
+              io.flush()
+            end
+          end
+        elseif byte >= 32 and byte <= 126 then
+          if history_index ~= history_size() + 1 then
+            history_index = history_size() + 1
+            saved_draft = current_buffer()
+          end
+          buf_len = buf_len + 1
+          buffer[buf_len] = char
+          saved_draft = current_buffer()
+          io.write(char)
+          io.flush()
+        else
+          io.write('\7')
+          io.flush()
+        end
+      end
+    end
+
+    local ok, result = pcall(reader_loop)
+    restore_stty()
+    if not ok then error(result) end
+    return result
+  end
+end
+
+local posix_line_reader = create_posix_line_reader()
+
 local function pack(...) return { n = select('#', ...), ... } end
 
 local function file_exists(path)
@@ -108,21 +299,47 @@ end
 local function repl()
   set_arg_table('', {})
   print('Rime Lua API interactive mode. Ctrl-C to exit.')
+  local history = {}
+
+  local function read_line(prompt)
+    if linenoise then
+      return linenoise.linenoise(prompt)
+    elseif posix_line_reader then
+      return posix_line_reader(prompt, history)
+    else
+      io.write(prompt)
+      io.flush()
+      return io.read('*l')
+    end
+  end
+
   while true do
-    io.write('> ')
-    local line = io.read('*l')
+    local line = read_line('> ')
     if line == nil then break end
+
+    if linenoise and line:match('%S') then
+      pcall(linenoise.addhistory, line)
+    end
+
+    if line:match('%S') then
+      history[#history + 1] = line
+    end
+
     local chunk, err = load('return ' .. line, '=(repl)')
     if not chunk then
       chunk, err = load(line, '=(repl)')
     end
-    if not chunk then print('Error: ' .. tostring(err))
+    if not chunk then
+      print('Error: ' .. tostring(err))
     else
       local results = pack(pcall(chunk))
-      if not results[1] then print('Error: ' .. tostring(results[2]))
+      if not results[1] then
+        print('Error: ' .. tostring(results[2]))
       else
         if results.n > 1 then
-          for i = 2, results.n do print(results[i] and tostring(results[i]) or 'nil') end
+          for i = 2, results.n do
+            print(results[i] and tostring(results[i]) or 'nil')
+          end
         end
       end
     end
