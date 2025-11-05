@@ -66,6 +66,10 @@ local function shell_ok(cmd)
   return false
 end
 
+local function has_visible_chars(str)
+  return type(str) == 'string' and str:match('%S') ~= nil
+end
+
 local function beep()
   io.write('\7')
   io.flush()
@@ -96,7 +100,7 @@ local function create_posix_line_reader()
     return shell_ok('stty -icanon -echo min 1 time 0')
   end
 
-  return function(prompt, history)
+  return function(prompt, history, opts)
     if not is_tty() then
       io.write(prompt)
       io.flush()
@@ -127,46 +131,93 @@ local function create_posix_line_reader()
       local saved_draft_valid = false
       local history_index = #history + 1
 
-      local function buffer_length()
-        return #buffer
-      end
-
-      local function current_text()
-        return table.concat(buffer)
-      end
-
+      local continuation_prompt = (opts and opts.continuation_prompt) or string.rep(' ', #prompt)
+      local last_cursor_row = 1
+      local function buffer_length() return #buffer end
+      local function current_text() return table.concat(buffer) end
       local function set_buffer(text)
         buffer = {}
-        for i = 1, #text do
-          buffer[i] = text:sub(i, i)
-        end
+        for i = 1, #text do buffer[i] = text:sub(i, i) end
         cursor = #buffer
       end
 
+      local function split_lines(text)
+        local lines = {}
+        local start_idx = 1
+        local len = #text
+        if len == 0 then return { '' } end
+        while true do
+          local nl = text:find('\n', start_idx, true)
+          if not nl then
+            lines[#lines + 1] = text:sub(start_idx)
+            break
+          end
+          lines[#lines + 1] = text:sub(start_idx, nl - 1)
+          start_idx = nl + 1
+          if start_idx > len then
+            lines[#lines + 1] = ''
+            break
+          end
+        end
+        return lines
+      end
+
+      local function build_display_lines(text)
+        local segments = split_lines(text)
+        if #segments == 0 then segments = { '' } end
+        local lines = {}
+        for i, segment in ipairs(segments) do
+          if i == 1 then lines[i] = prompt .. segment
+          else lines[i] = continuation_prompt .. segment end
+        end
+        return lines
+      end
+
+      local function build_cursor_lines()
+        if cursor == 0 then return { prompt } end
+        local prefix = table.concat(buffer, '', 1, cursor)
+        return build_display_lines(prefix)
+      end
+
       local function refresh_line()
+        local display_lines = build_display_lines(current_text())
+        if #display_lines == 0 then display_lines = { prompt } end
+        local cursor_lines = build_cursor_lines()
+        local target_row = #cursor_lines
+        local target_col = #cursor_lines[target_row]
+
+        if last_cursor_row > 1 then
+          io.write(string.format('\27[%dF', last_cursor_row - 1))
+        end
+        io.write('\r\27[J')
+
+        for i, line in ipairs(display_lines) do
+          if i > 1 then io.write('\r\n') end
+          io.write(line)
+          io.write('\27[K')
+        end
+
+        local total_lines = #display_lines
+        if total_lines < 1 then total_lines = 1 end
+        last_cursor_row = target_row
+
+        local lines_up = total_lines - target_row
+        if lines_up > 0 then
+          io.write(string.format('\27[%dF', lines_up))
+        end
         io.write('\r')
-        io.write(prompt)
-        io.write(current_text())
-        io.write('\27[K')
-        local move_left = buffer_length() - cursor
-        if move_left > 0 then
-          io.write(string.format('\27[%dD', move_left))
+        if target_col > 0 then
+          io.write(string.format('\27[%dC', target_col))
         end
         io.flush()
       end
 
-      local function history_size()
-        return #history
-      end
+      local function history_size() return #history end
 
-      local function at_bottom()
-        return history_index == history_size() + 1
-      end
+      local function at_bottom() return history_index == history_size() + 1 end
 
       local function break_history_navigation()
-        if not at_bottom() then
-          history_index = history_size() + 1
-        end
+        if not at_bottom() then history_index = history_size() + 1 end
       end
 
       local function ensure_saved_draft()
@@ -183,13 +234,16 @@ local function create_posix_line_reader()
 
       while true do
         local ch = io.stdin:read(1)
-        if not ch then
-          return nil, 'eof'
-        end
+        if not ch then return nil, 'eof' end
         local byte = ch:byte()
 
         if byte == 13 or byte == 10 then
-          refresh_line()
+          if cursor < buffer_length() then
+            cursor = buffer_length()
+            refresh_line()
+          else
+            refresh_line()
+          end
           io.write('\n')
           io.flush()
           return current_text()
@@ -217,9 +271,7 @@ local function create_posix_line_reader()
           local function read_escape()
             local prefix = io.stdin:read(1)
             if not prefix then return nil end
-            if prefix ~= '[' and prefix ~= 'O' then
-              return { prefix = prefix }
-            end
+            if prefix ~= '[' and prefix ~= 'O' then return { prefix = prefix } end
             local params = {}
             while true do
               local next_ch = io.stdin:read(1)
@@ -237,9 +289,7 @@ local function create_posix_line_reader()
           end
 
           local seq = read_escape()
-          if not seq then
-            return nil, 'eof'
-          end
+          if not seq then return nil, 'eof' end
 
           local final = seq.final or ''
           if seq.prefix == '[' or seq.prefix == 'O' then
@@ -247,14 +297,9 @@ local function create_posix_line_reader()
               if history_size() == 0 then
                 beep()
               else
-                if at_bottom() then
-                  ensure_saved_draft()
-                end
-                if history_index > 1 then
-                  history_index = history_index - 1
-                else
-                  history_index = 1
-                end
+                if at_bottom() then ensure_saved_draft() end
+                if history_index > 1 then history_index = history_index - 1
+                else history_index = 1 end
                 pull_history(history_index)
               end
             elseif final == 'B' then -- Down arrow
@@ -334,14 +379,29 @@ local function create_posix_line_reader()
 
     local ok, line, tag = pcall(reader_loop)
     restore_stty(stty_state)
-    if not ok then
-      error(line)
-    end
+    if not ok then error(line) end
     return line, tag
   end
 end
 
 local posix_line_reader = create_posix_line_reader()
+
+local function read_line(prompt, history, opts)
+  if linenoise then
+    local line = linenoise.linenoise(prompt)
+    if line and has_visible_chars(line) then pcall(linenoise.addhistory, line) end
+    return line, nil
+  end
+  if posix_line_reader then
+    local line, tag = posix_line_reader(prompt, history or {}, opts)
+    return line, tag
+  end
+  io.write(prompt)
+  io.flush()
+  local line = io.read('*l')
+  if line == nil then return nil, 'eof' end
+  return line, nil
+end
 
 local function pack(...) return { n = select('#', ...), ... } end
 
@@ -373,6 +433,49 @@ local function set_arg_table(script_path, extras)
   _G.arg = args
 end
 
+local function try_compile_chunk(chunk)
+  if chunk == nil then return nil, false, 'empty chunk' end
+  local fn, err = load('return ' .. chunk, '=(repl)')
+  if fn then
+    return fn, true, nil
+  end
+  fn, err = load(chunk, '=(repl)')
+  if fn then
+    return fn, false, nil
+  end
+  return nil, false, err
+end
+
+local function collect_chunk(history, prompt, continuation_prompt)
+  local lines = {}
+  local current_prompt = prompt
+  local opts = { continuation_prompt = continuation_prompt }
+
+  while true do
+    local line, tag = read_line(current_prompt, history, opts)
+    if line == nil then
+      return nil, nil, false, tag
+    end
+
+    lines[#lines + 1] = line
+    local chunk = table.concat(lines, '\n')
+    if not has_visible_chars(chunk) and #lines == 1 then
+      return chunk, nil, false, 'blank'
+    end
+    local fn, is_expr, err = try_compile_chunk(chunk)
+    if fn then
+      return chunk, fn, is_expr, nil
+    end
+
+    local err_str = err and tostring(err) or ''
+    if err_str:find('<eof>', 1, true) then
+      current_prompt = continuation_prompt
+    else
+      return nil, nil, false, 'syntax', err
+    end
+  end
+end
+
 local function run_script(script_path, extras)
   ensure_package_path(dirname(script_path))
   set_arg_table(script_path, extras)
@@ -399,39 +502,30 @@ local function repl()
   set_arg_table('', {})
   print('Rime Lua API interactive mode. Ctrl-C to exit.')
   local history = {}
-
-  local function read_line(prompt)
-    if linenoise then
-      return linenoise.linenoise(prompt)
-    elseif posix_line_reader then
-      return posix_line_reader(prompt, history)
-    else
-      io.write(prompt)
-      io.flush()
-      return io.read('*l')
-    end
-  end
+  local prompt = '> '
+  local continuation_prompt = '>> '
 
   while true do
-    local line = read_line('> ')
-    if line == nil then break end
-
-    if linenoise and line:match('%S') then
-      pcall(linenoise.addhistory, line)
-    end
-
-    if line:match('%S') then
-      history[#history + 1] = line
-    end
-
-    local chunk, err = load('return ' .. line, '=(repl)')
-    if not chunk then
-      chunk, err = load(line, '=(repl)')
-    end
-    if not chunk then
-      print('Error: ' .. tostring(err))
+    local chunk, fn, is_expr, status, err = collect_chunk(history, prompt, continuation_prompt)
+    if chunk == nil then
+      if status == 'interrupt' then
+        -- user cancelled current input, restart loop
+      elseif status == 'syntax' and err then
+        print('Error: ' .. tostring(err))
+      elseif status == 'eof' then
+        break
+      else
+        break
+      end
+    elseif status == 'blank' or not has_visible_chars(chunk) then
+      -- ignore empty submissions
     else
-      local results = pack(pcall(chunk))
+      history[#history + 1] = chunk
+      if linenoise then
+        pcall(linenoise.addhistory, chunk)
+      end
+
+      local results = pack(pcall(fn))
       if not results[1] then
         print('Error: ' .. tostring(results[2]))
       else
