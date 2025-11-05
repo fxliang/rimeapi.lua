@@ -56,12 +56,26 @@ local path_sep = package.config:sub(1,1) == '\\' and '\\' or '/'
 local has_linenoise, linenoise = pcall(require, 'linenoise')
 if not has_linenoise then linenoise = nil end
 
+local function shell_ok(cmd)
+  local r1, r2, r3 = os.execute(cmd)
+  if r1 == true then return true end
+  if r1 == nil then return false end
+  if r1 == false then return false end
+  if type(r1) == 'number' then return r1 == 0 end
+  if r2 == 'exit' then return r3 == 0 end
+  return false
+end
+
+local function beep()
+  io.write('\7')
+  io.flush()
+end
+
 local function create_posix_line_reader()
   if package.config:sub(1,1) == '\\' then return nil end
 
   local function is_tty()
-    local result = os.execute('tty -s >/dev/null 2>&1')
-    return result == true or result == 0
+    return shell_ok('test -t 0 >/dev/null 2>&1')
   end
 
   local function capture_stty_state()
@@ -70,6 +84,16 @@ local function create_posix_line_reader()
     local state = pipe:read('*l')
     pipe:close()
     return state
+  end
+
+  local function restore_stty(state)
+    if state and state ~= '' then
+      shell_ok('stty ' .. state)
+    end
+  end
+
+  local function set_raw_mode()
+    return shell_ok('stty -icanon -echo min 1 time 0')
   end
 
   return function(prompt, history)
@@ -86,17 +110,8 @@ local function create_posix_line_reader()
       return io.read('*l')
     end
 
-    local restored = false
-    local function restore_stty()
-      if not restored then
-        os.execute('stty ' .. stty_state)
-        restored = true
-      end
-    end
-
-    local set_raw = os.execute('stty -icanon -echo min 1 time 0')
-    if not (set_raw == true or set_raw == 0) then
-      restore_stty()
+    if not set_raw_mode() then
+      restore_stty(stty_state)
       io.write(prompt)
       io.flush()
       return io.read('*l')
@@ -105,140 +120,224 @@ local function create_posix_line_reader()
     local function reader_loop()
       io.write(prompt)
       io.flush()
+      history = history or {}
       local buffer = {}
-      local buf_len = 0
+      local cursor = 0
       local saved_draft = ''
-      local history_index = (#history or 0) + 1
+      local saved_draft_valid = false
+      local history_index = #history + 1
 
-      local function history_size()
-        return #history
+      local function buffer_length()
+        return #buffer
       end
 
-      local function current_buffer()
-        if buf_len == 0 then return '' end
-        return table.concat(buffer, '', 1, buf_len)
+      local function current_text()
+        return table.concat(buffer)
       end
 
       local function set_buffer(text)
-        text = text or ''
-        local prev_len = buf_len
-        buf_len = #text
-        for i = 1, buf_len do
+        buffer = {}
+        for i = 1, #text do
           buffer[i] = text:sub(i, i)
         end
-        for i = buf_len + 1, prev_len do
-          buffer[i] = nil
-        end
+        cursor = #buffer
       end
 
       local function refresh_line()
         io.write('\r')
         io.write(prompt)
-        io.write(current_buffer())
+        io.write(current_text())
         io.write('\27[K')
+        local move_left = buffer_length() - cursor
+        if move_left > 0 then
+          io.write(string.format('\27[%dD', move_left))
+        end
         io.flush()
       end
 
-      local function enter_bottom_mode()
-        history_index = history_size() + 1
-        saved_draft = current_buffer()
+      local function history_size()
+        return #history
+      end
+
+      local function at_bottom()
+        return history_index == history_size() + 1
+      end
+
+      local function break_history_navigation()
+        if not at_bottom() then
+          history_index = history_size() + 1
+        end
+      end
+
+      local function ensure_saved_draft()
+        if not saved_draft_valid then
+          saved_draft = current_text()
+          saved_draft_valid = true
+        end
+      end
+
+      local function pull_history(index)
+        set_buffer(history[index] or '')
+        refresh_line()
       end
 
       while true do
-        local char = io.read(1)
-        if not char or char == '' then
-          return nil
+        local ch = io.stdin:read(1)
+        if not ch then
+          return nil, 'eof'
         end
-        local byte = char:byte()
+        local byte = ch:byte()
 
         if byte == 13 or byte == 10 then
           refresh_line()
           io.write('\n')
           io.flush()
-          return current_buffer()
+          return current_text()
         elseif byte == 4 then -- Ctrl-D
-          if buf_len == 0 then
+          if buffer_length() == 0 then
             io.write('\n')
             io.flush()
-            return nil
+            return nil, 'eof'
           end
         elseif byte == 3 then -- Ctrl-C
           io.write('\n')
           io.flush()
-          return nil
+          return nil, 'interrupt'
         elseif byte == 127 or byte == 8 then -- Backspace/Delete
-          if history_index ~= history_size() + 1 then
-            enter_bottom_mode()
-          end
-          if buf_len > 0 then
-            buffer[buf_len] = nil
-            buf_len = buf_len - 1
-            saved_draft = current_buffer()
+          if cursor > 0 then
+            table.remove(buffer, cursor)
+            cursor = cursor - 1
+            break_history_navigation()
+            saved_draft_valid = false
             refresh_line()
           else
-            io.write('\7')
-            io.flush()
+            beep()
           end
         elseif byte == 27 then -- Escape sequences
-          local seq1 = io.read(1)
-          local seq2 = io.read(1)
-          if seq1 == '[' and seq2 then
-            if seq2 == 'A' then -- Up arrow
-              if history_size() == 0 then
-                io.write('\7')
-                io.flush()
+          local function read_escape()
+            local prefix = io.stdin:read(1)
+            if not prefix then return nil end
+            if prefix ~= '[' and prefix ~= 'O' then
+              return { prefix = prefix }
+            end
+            local params = {}
+            while true do
+              local next_ch = io.stdin:read(1)
+              if not next_ch then return nil end
+              if next_ch:match('[0-9;]') then
+                params[#params + 1] = next_ch
               else
-                if history_index == history_size() + 1 then
-                  saved_draft = current_buffer()
+                return {
+                  prefix = prefix,
+                  params = table.concat(params),
+                  final = next_ch
+                }
+              end
+            end
+          end
+
+          local seq = read_escape()
+          if not seq then
+            return nil, 'eof'
+          end
+
+          local final = seq.final or ''
+          if seq.prefix == '[' or seq.prefix == 'O' then
+            if final == 'A' then -- Up arrow
+              if history_size() == 0 then
+                beep()
+              else
+                if at_bottom() then
+                  ensure_saved_draft()
                 end
                 if history_index > 1 then
                   history_index = history_index - 1
                 else
                   history_index = 1
                 end
-                set_buffer(history[history_index] or '')
-                refresh_line()
+                pull_history(history_index)
               end
-            elseif seq2 == 'B' then -- Down arrow
-              if history_size() == 0 or history_index == history_size() + 1 then
-                io.write('\7')
-                io.flush()
+            elseif final == 'B' then -- Down arrow
+              if history_size() == 0 or at_bottom() then
+                beep()
               else
                 history_index = history_index + 1
-                if history_index > history_size() then
-                  history_index = history_size() + 1
-                  set_buffer(saved_draft)
+                if at_bottom() then
+                  set_buffer(saved_draft_valid and saved_draft or '')
+                  saved_draft_valid = false
+                  refresh_line()
                 else
-                  set_buffer(history[history_index] or '')
+                  pull_history(history_index)
                 end
+              end
+            elseif final == 'C' then -- Right arrow
+              if cursor < buffer_length() then
+                cursor = cursor + 1
+                break_history_navigation()
                 refresh_line()
+              else
+                beep()
+              end
+            elseif final == 'D' then -- Left arrow
+              if cursor > 0 then
+                cursor = cursor - 1
+                break_history_navigation()
+                refresh_line()
+              else
+                beep()
+              end
+            elseif final == 'H' then -- Home
+              if cursor > 0 then
+                cursor = 0
+                break_history_navigation()
+                refresh_line()
+              else
+                beep()
+              end
+            elseif final == 'F' then -- End
+              if cursor < buffer_length() then
+                cursor = buffer_length()
+                break_history_navigation()
+                refresh_line()
+              else
+                beep()
               end
             else
-              io.write('\7')
-              io.flush()
+              local params = seq.params or ''
+              if final == '~' and params == '3' then -- Delete key
+                if cursor < buffer_length() then
+                  table.remove(buffer, cursor + 1)
+                  break_history_navigation()
+                  saved_draft_valid = false
+                  refresh_line()
+                else
+                  beep()
+                end
+              else
+                beep()
+              end
             end
+          else
+            beep()
           end
         elseif byte >= 32 and byte <= 126 then
-          if history_index ~= history_size() + 1 then
-            history_index = history_size() + 1
-            saved_draft = current_buffer()
-          end
-          buf_len = buf_len + 1
-          buffer[buf_len] = char
-          saved_draft = current_buffer()
-          io.write(char)
-          io.flush()
+          table.insert(buffer, cursor + 1, ch)
+          cursor = cursor + 1
+          break_history_navigation()
+          saved_draft_valid = false
+          refresh_line()
         else
-          io.write('\7')
-          io.flush()
+          beep()
         end
       end
     end
 
-    local ok, result = pcall(reader_loop)
-    restore_stty()
-    if not ok then error(result) end
-    return result
+    local ok, line, tag = pcall(reader_loop)
+    restore_stty(stty_state)
+    if not ok then
+      error(line)
+    end
+    return line, tag
   end
 end
 
