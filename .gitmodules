@@ -1,3 +1,6 @@
 [submodule "librime"]
 	path = librime
 	url = https://github.com/rime/librime.git
+[submodule "lua5.4"]
+	path = lua5.4
+	url = git@github.com:lua/lua.git

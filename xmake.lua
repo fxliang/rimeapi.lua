@@ -1,12 +1,35 @@
-add_requires('lua', {system = false})
+if is_plat("windows") then
+  if is_mode("debug") then set_runtimes("MTd")
+  else set_runtimes("MT") end
+end
 -------------------------------------------------------------------------------
 --- core object lib
 target('core')
   set_kind('object')
   set_languages('c++17')
-  if is_plat('linux') then add_cxflags('-fPIC') end
+  if not is_plat('windows') then add_cxflags('-fPIC') end
   add_files('src/*.c', 'src/*.cc')
   add_rules('common_rules')
+
+target('lua')
+  set_kind('binary')
+  add_files('lua5.4/onelua.c')
+  if not is_plat('windows', 'mingw') then
+    add_cflags('-fPIC -DLUA_USE_LINUX')
+  end
+  after_build(function(target)
+    print('copy ' .. target:targetfile() .. ' to ' .. os.projectdir())
+    os.trycp(target:targetfile(), os.projectdir())
+  end)
+
+target('lua5.4')
+  set_kind('static')
+  add_files('lua5.4/onelua.c')
+  add_defines('MAKE_LIB')
+  add_includedirs('lua5.4', {public = true})
+  if not is_plat('windows', 'mingw') then
+    add_cflags('-fPIC -DLUA_USE_LINUX')
+  end
 
 -------------------------------------------------------------------------------
 target('rimeapi.app')
@@ -18,7 +41,7 @@ target('rimeapi.app')
 target('rimeapi_lua')
   set_kind('shared')
   --set target file name to rimeapi_lua.so rimeapi_lua.dylib or rimeapi_lua.dll
-  local file_name = is_plat('windows') and 'rimeapi_lua.dll'
+  local file_name = is_plat('windows', 'mingw') and 'rimeapi_lua.dll'
     or (is_plat('macosx') and 'rimeapi_lua.dylib' or 'rimeapi_lua.so')
   set_filename(file_name)
   add_files('src/main.cpp', {defines = 'BUILD_AS_LUA_MODULE'})
@@ -32,13 +55,16 @@ rule('common_rules')
     local is_termux = os.getenv("TERMUX_VERSION") and true or false
     if is_termux or is_plat('macosx') then target:add('defines', 'RTLD_DEEPBIND=0') end
     target:set('languages', 'c++17')
-    target:add('packages', 'lua')
+    target:add('deps', 'lua5.4')
     if is_plat('windows', 'mingw') then
       target:add('includedirs', 'include')
       target:add('linkdirs', (is_arch('x64', 'x86_64') and 'lib64' or 'lib'))
       if is_plat('windows') then
         target:add('cxflags', '/utf-8')
         target:add('cflags', '/utf-8')
+      else
+        target:add('ldflags', '-static-libgcc -static-libstdc++ -static')
+        target:add('shflags', '-static-libgcc -static-libstdc++ -static')
       end
     else
       target:add('syslinks', {'pthread', 'dl'})
@@ -53,16 +79,6 @@ rule('common_rules')
       target:add('cxflags', '-O2')
     end
   end)
-  after_load(function (target)
-    local pkgs = target:pkgs()
-    local pkg = pkgs and pkgs['lua']
-    if pkg and pkg.installdir then
-      local installdir = pkg:installdir()
-      if installdir and os.isdir(installdir) then
-        target:set('lua_bin_dir', path.join(installdir, 'bin'))
-      end
-    end
-  end)
 
 rule('copy_after_build')
   -- copy executable to project dir
@@ -71,14 +87,5 @@ rule('copy_after_build')
     os.cp(target:targetfile(), os.projectdir())
     if is_plat('windows', 'mingw') then
       os.trycp(is_arch('x64', 'x86_64') and 'lib64\\rime.dll' or 'lib\\rime.dll', os.projectdir())
-    end
-    if target:name() == 'rimeapi_lua' then
-      local bin_path = target:get('lua_bin_dir')
-      if bin_path and os.isdir(bin_path) then
-        local lua_bin_name = is_plat('windows', 'mingw') and ('lua' .. '.exe') or 'lua'
-        local lua_path = path.join(bin_path, lua_bin_name)
-        print('copy ' .. lua_path .. ' to ' .. os.projectdir())
-        os.trycp(lua_path, os.projectdir())
-      end
     end
   end)
