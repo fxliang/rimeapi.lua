@@ -379,7 +379,15 @@ local function create_posix_line_reader()
 
     local ok, line, tag = pcall(reader_loop)
     restore_stty(stty_state)
-    if not ok then error(line) end
+    if not ok then
+      local message = tostring(line or '')
+      if message:find('interrupted!') then
+        io.write('\n')
+        io.flush()
+        return nil, 'interrupt'
+      end
+      error(line)
+    end
     return line, tag
   end
 end
@@ -504,12 +512,14 @@ local function repl()
   local history = {}
   local prompt = '> '
   local continuation_prompt = '>> '
+  local interrupted = false
 
   while true do
     local chunk, fn, is_expr, status, err = collect_chunk(history, prompt, continuation_prompt)
     if chunk == nil then
       if status == 'interrupt' then
-        -- user cancelled current input, restart loop
+        interrupted = true
+        break
       elseif status == 'syntax' and err then
         print('Error: ' .. tostring(err))
       elseif status == 'eof' then
@@ -537,6 +547,7 @@ local function repl()
       end
     end
   end
+  return interrupted
 end
 
 local function collect_cli()
@@ -560,8 +571,12 @@ local function main()
     local ok = run_script(script, extras)
     os.exit(ok and 0 or 1)
   else
-    repl()
-    os.exit(0)
+    local interrupted = repl()
+    if interrupted then
+      os.exit(130)
+    else
+      os.exit(0)
+    end
   end
 end
 
