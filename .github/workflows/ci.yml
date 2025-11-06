@@ -22,6 +22,8 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       
       - name: setup librime
         run: |
@@ -162,6 +164,8 @@ jobs:
         arch: [x64, x86]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: xmake-io/github-action-setup-xmake@v1
       - uses: ilammy/msvc-dev-cmd@v1
         with:
