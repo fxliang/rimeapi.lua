@@ -424,6 +424,27 @@ if ($null -ne $response.assets -and $response.assets.Count -gt 0) {
         }
       }
     }
+    elseif ($os -eq "macOS") {
+      if ( $use -eq "toy"){
+        if (-not (Test-Path -Path ".\include")) {
+          New-Item -ItemType Directory -Path ".\include" > $null
+        }
+        if (-not (Test-Path -Path ".\lib")) {
+          New-Item -ItemType Directory -Path ".\lib" > $null
+        }
+        if ((Test-Path "./include") -and (Test-Path "./lib")) {
+          Remove-Item include/rime_*.h -ErrorAction SilentlyContinue
+          # copy $outPath /dist/include/rime*.h to include
+          Copy-Item -Path "$outPath/dist/include/rime_*.h" -Destination "./include/" -ErrorAction SilentlyContinue
+          Write-Host "☑  rime_*.h has been copied to ./include/"
+          # copy $outPath /dist/lib/* to lib
+          Copy-Item -Path "$outPath/dist/lib/*" -Destination "./lib/" -ErrorAction SilentlyContinue
+          Write-Host "☑  lib files have been copied to ./lib/"
+        } else {
+          Write-Host "❌ current directory is not a toy source directory"
+        }
+      }
+    }
   }
 } else {
   Write-Host "❌ Error: No assets found for the latest release."

@@ -79,6 +79,7 @@ function(apply_common_settings target)
       $<$<NOT:$<CONFIG:Debug>>:-O2>)
 
     if(APPLE)
+      target_include_directories(${target} PRIVATE ${CMAKE_SOURCE_DIR}/include)
       target_link_options(${target} PRIVATE "-Wl,-rpath,@loader_path")
     else()
       target_link_options(${target} PRIVATE "-Wl,-rpath,$ORIGIN")

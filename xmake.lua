@@ -67,6 +67,9 @@ rule('common_rules')
         target:add('shflags', '-static-libgcc -static-libstdc++ -static')
       end
     else
+      if is_plat('macosx') then
+        target:add('includedirs', 'include')
+      end
       target:add('syslinks', {'pthread', 'dl'})
       target:add('ldflags', ('-Wl,-rpath,' .. (is_plat('linux') and '$ORIGIN' or '@loader_path')), {force = true})
     end
