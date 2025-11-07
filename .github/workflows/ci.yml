@@ -65,7 +65,6 @@ jobs:
 
       - name: test
         run: |
-          ./rimeapi.app test.lua api_test levers_api_test
           ./rimeapi.app.lua test.lua api_test levers_api_test
           ./lua test.lua api_test levers_api_test
           luajit test.lua api_test levers_api_test
@@ -76,7 +75,6 @@ jobs:
         if: matrix.maker == 'xmake'
         run: |
           mkdir -p dist
-          cp ./rimeapi.app ./dist/
           cp ./rimeapi_lua.dylib ./dist/
           cp ./rimeapi.lua ./dist/
           cp ./rimeapi_ffi.lua ./dist/
@@ -182,7 +180,6 @@ jobs:
 
       - name: test
         run: |
-          ./rimeapi.app test.lua api_test levers_api_test
           ./rimeapi.app.lua test.lua api_test levers_api_test
           ./lua test.lua api_test levers_api_test
           luajit test.lua api_test levers_api_test
@@ -239,7 +236,6 @@ jobs:
         env:
           PATH: .\LuaJIT\src\;${{ env.PATH }}
         run: |
-          .\rimeapi.app.exe test.lua api_test levers_api_test
           .\lua.exe test.lua api_test levers_api_test
           luajit.exe test.lua api_test levers_api_test
           luajit.exe .\rimeapi.app.lua test.lua api_test levers_api_test
@@ -249,7 +245,6 @@ jobs:
         if: matrix.maker == 'xmake'
         run: |
           mkdir dist
-          cp ./rimeapi.app.exe ./dist/
           cp ./rimeapi_lua.dll ./dist/
           cp ./rimeapi.lua ./dist/
           cp ./rimeapi_ffi.lua ./dist/

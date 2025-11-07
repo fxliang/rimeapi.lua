@@ -3,30 +3,29 @@
 ## Overview
 This module provides a set of functions to interact with the Rime Input Method Engine, allowing users to reference **librime api**, **librime levers** api related functionalities programmatically.
 
-## Outputs
-
-- `rimeapi.app`/`rimeapi.app.exe`: an app to run rimeapi functions lua scripts, or work as a REPL
-- `rimeapi_lua.so`/`rimeapi_lua.dll`/`rimeapi_lua.dylib`: a shared library to be used in other lua scripts
-
 ## Build Instructions
 To build the shared library, xmake is required. Follow these steps:
 
-- install `xmake`, `git`, and compiler tools for your system
+- install `xmake` or `cmake`, `git`, and compiler tools for your system
 - clone the repository
-- install `librime` for linux/macos, or prepare librime libs in `lib` or `lib64` (.lib and .dll) and headers in `include` for windows
-- the `rimeapi.app` or `rimeapi.app.exe` will be generated in the project root directory
+- install `librime` for linux/macos, or prepare librime libs in `lib` or `lib64` and headers in `include` for windows/macos
+- build the shared library for lua binding with `xmake` or `cmake`, if you want.
 - if your are to use this module in luajit, make sure lua is static linked in librime-lua for MacOS/termux, because `RTLD_DEEPBIND` is not supported in these platforms.
-- to run tests, `lua test.lua api_test levers_api_test`, `luajit test.lua api_test levers_api_test` or `rimeapi.app test.lua api_test levers_api_test`
+- to run tests, run `lua test.lua api_test levers_api_test`, or `luajit test.lua api_test levers_api_test`
 
 ## Files Description
 
-- `rimeapi.lua`: a lua module for automatically loading shared library or ffi module
+- `rimeapi.lua`: a lua module for automatically loading shared library or ffi module, for lua/luajit
 - `rimeapi_ffi.lua`: a luajit ffi binding module just like `rimeapi_lua.so`/`rimeapi_lua.dll`/`rimeapi_lua.dylib`
-- `scripts/api_test.lua`: a rime api test script, use it `./rimeapi.app ./scripts/api_test.lua`, temp output will be in `api_test` directory
-- `scripts/levers_api_test.lua`: a rime levers api test script, use it `./rimeapi.app ./scripts/levers_api_test.lua`, temp output will be in `api_test` directory
+- shared libraries for lua binding:
+  - `rimeapi_lua.so`: for linux
+  - `rimeapi_lua.dylib`: for macos
+  - `rimeapi_lua.dll`: for windows
+- `scripts/api_test.lua`: a rime api test script
+- `scripts/levers_api_test.lua`: a rime levers api test script
 - `shared`: base yamls from `librime` project, and a yaml `api_test.yaml`
-- `rime_api_console.lua`: a lua script to work like `rime_api_console` of `librime`, use it `rimeapi.app ./rime_api_console.lua` or `lua ./rime_api_console.lua`
-- `rimeapi.app.lua`: a luajit script to work like `rimeapi.app`
+- `rimeapi.app.lua`: a lua/luajit script, work as a REPL when no extra args passed, or run test scripts when args passed
+- `rime_api_console.lua`: a lua script to work like `rime_api_console` of `librime`
 - `get-rime.ps1`: a powershell script tool for getting `librime` for windows/macos
 
 ## Credites

@@ -42,9 +42,7 @@ end
 -------------------------------------------------------------------------------
 local lua = jit and 'luajit' or 'lua'
 local ext = package.config:sub(1,1) == '\\' and '.exe' or ''
-local lua_exe = lua .. ext
-local rimeapi_exe = 'rimeapi.app' .. ext
-local cmd_runner = runner and lua_exe or rimeapi_exe
+local cmd_runner = lua .. ext
 local orig_cp = set_console_codepage(65001)
 if #arg == 1 and arg[1] == '-h' then
   -- list modules in ./scripts/
@@ -71,7 +69,7 @@ if #arg == 1 and arg[1] == '-h' then
   else
     for _, filename in ipairs(luaFiles) do print("  " .. filename) end
   end
-  print('Run:\n  '.. cmd_runner ..' test.lua <module_name>\n  or\n  '.. cmd_runner .. ' test.lua <module_name>\nto test a module')
+  print('Run:\n  '.. cmd_runner ..' test.lua <module_name>\n')
 elseif #arg >= 1 then
   -- loop arg to require the module in scripts
   for i = 1, #arg do
@@ -82,7 +80,6 @@ elseif #arg >= 1 then
     print('-----------------------------------')
   end
 else
-  local orig_cp = set_console_codepage(65001)
   require('scripts.api_test')
   print('Tested default module: script.api_test')
 end
