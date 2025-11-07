@@ -2365,7 +2365,6 @@ static void get_api() {
   }
 }
 
-#if defined(BUILD_AS_LUA_MODULE)
 static void ensure_librime_gc(lua_State* L) {
   lua_getfield(L, LUA_REGISTRYINDEX, "__rime_library_gc");
   if (!lua_isnil(L, -1)) {
@@ -2410,99 +2409,3 @@ extern "C" RIME_API int luaopen_rimeapi_lua(lua_State *L) {
   }
   return 1; // return module table
 }
-#else
-#ifdef _WIN32
-static std::string app_script_path() {
-  char exe_path[MAX_PATH] = {0};
-  GetModuleFileNameA(NULL, exe_path, MAX_PATH);
-  char* last_backslash = strrchr(exe_path, '\\');
-  if (last_backslash) *last_backslash = '\0';
-  std::string lua_path(exe_path);
-  lua_path += "\\rimeapi.app.lua";
-  return lua_path;
-}
-#else
-#include <unistd.h>
-static std::string app_script_path() {
-  char exe_path[PATH_MAX];
-  ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path)-1);
-  if (len != -1) {
-    exe_path[len] = '\0';
-    char* last_slash = strrchr(exe_path, '/');
-    if (last_slash) *last_slash = '\0';
-  }
-  std::string lua_path(exe_path);
-  lua_path += "/rimeapi.app.lua";
-  return lua_path;
-}
-#endif
-int main(int argc, char* argv[]) {
-  int codepage = SetConsoleOutputCodePage();
-  get_api();
-  lua_State *L = luaL_newstate();
-  luaL_openlibs(L);
-  register_rime_bindings(L);
-  // if argv is empty get to interactive mode, else use argv[1] as script path
-  std::string script = argc > 1 && std::filesystem::exists(argv[1]) ?
-    std::string(argv[1]) : "";
-  // add script path's directory to package.path
-  std::filesystem::path sp(script);
-  std::string script_dir = sp.has_parent_path() ? sp.parent_path().string() : ".";
-  lua_getglobal(L, "package");
-  lua_getfield(L, -1, "path");
-  std::string cur_path = lua_tostring(L, -1);
-  cur_path += ";" + script_dir + "/?.lua";
-  lua_pop(L, 1); // remove old path
-  lua_pushstring(L, cur_path.c_str());
-  lua_setfield(L, -2, "path");
-  lua_pop(L, 1); // remove package table
-  lua_newtable(L);
-  // if script is directory, try set script to init.lua inside it
-  if (!script.empty() && std::filesystem::is_directory(sp)) {
-    std::filesystem::path init_path = sp / "init.lua";
-    if (std::filesystem::exists(init_path)) {
-      script = init_path.string();
-    }
-  }
-  lua_pushstring(L, script.c_str());
-  lua_rawseti(L, -2, 0);
-  for (int i = 1; i < argc; ++i) {
-    lua_pushstring(L, argv[i]);
-    lua_rawseti(L, -2, i - 1);
-  }
-  lua_setglobal(L, "arg");
-  const auto cleanup_levers_on_exit = [&]() {
-    std::unordered_set<void*> tmp;
-    std::lock_guard<std::mutex> lk(levers_settings_mutex);
-    tmp.swap(levers_settings_owned);
-    auto api = RIMELEVERSAPI;
-    if (!api) return;
-    for (auto p : tmp) {
-      api->custom_settings_destroy(reinterpret_cast<RimeCustomSettings*>(p));
-    }
-  };
-  int ret = 0;
-  if (script.empty()) {
-    auto app_script = app_script_path();
-    if (!std::filesystem::exists(app_script)) {
-      printf("Error: no script specified and default app script not found: %s\n", app_script.c_str());
-      ret = 1;
-    } else if(luaL_dofile(L, app_script_path().c_str())) {
-      const char *msg = lua_tostring(L, -1);
-      printf("Error: %s\n", msg);
-      lua_pop(L, 1);  // remove error message
-      ret = 1;
-    }
-  } else if (luaL_dofile(L, script.c_str())) {
-    const char *msg = lua_tostring(L, -1);
-    printf("Error: %s\n", msg);
-    lua_pop(L, 1);  // remove error message
-    ret = 1;
-  }
-  lua_close(L);
-  cleanup_levers_on_exit();
-  SetConsoleOutputCodePage(codepage);
-  FREE_RIME();
-  return ret;
-}
-#endif

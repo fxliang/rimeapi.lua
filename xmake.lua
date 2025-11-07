@@ -3,13 +3,6 @@ if is_plat("windows") then
   else set_runtimes("MT") end
 end
 -------------------------------------------------------------------------------
---- core object lib
-target('core')
-  set_kind('object')
-  set_languages('c++17')
-  if not is_plat('windows') then add_cxflags('-fPIC') end
-  add_files('src/*.c', 'src/*.cc')
-  add_rules('common_rules')
 
 target('lua')
   set_kind('binary')
@@ -32,20 +25,13 @@ target('lua5.4')
   end
 
 -------------------------------------------------------------------------------
-target('rimeapi.app')
-  add_deps('core')
-  add_files('src/main.cpp')
-  add_rules('copy_after_build', 'common_rules')
-
--------------------------------------------------------------------------------
 target('rimeapi_lua')
   set_kind('shared')
   --set target file name to rimeapi_lua.so rimeapi_lua.dylib or rimeapi_lua.dll
   local file_name = is_plat('windows', 'mingw') and 'rimeapi_lua.dll'
     or (is_plat('macosx') and 'rimeapi_lua.dylib' or 'rimeapi_lua.so')
   set_filename(file_name)
-  add_files('src/main.cpp', {defines = 'BUILD_AS_LUA_MODULE'})
-  add_deps('core')
+  add_files('src/*.cpp', 'src/*.c', 'src/*.cc')
   add_rules('copy_after_build', 'common_rules')
 
 -------------------------------------------------------------------------------

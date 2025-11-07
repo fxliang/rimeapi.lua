@@ -43,12 +43,6 @@ function(apply_common_settings target)
   if(WIN32)
     target_include_directories(${target} PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
-    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-      target_link_directories(${target} PRIVATE ${CMAKE_SOURCE_DIR}/lib64)
-    else()
-      target_link_directories(${target} PRIVATE ${CMAKE_SOURCE_DIR}/lib)
-    endif()
-
     if(MSVC)
       target_compile_options(${target} PRIVATE
         $<$<COMPILE_LANGUAGE:C>:/utf-8>
@@ -120,10 +114,6 @@ if(NOT WIN32)
   target_link_libraries(lua5.4 PUBLIC m)
 endif()
 
-add_executable(rimeapi.app src/main.cpp)
-target_sources(rimeapi.app PRIVATE $<TARGET_OBJECTS:core>)
-apply_common_settings(rimeapi.app LINK_LUA)
-
 add_library(rimeapi_lua SHARED src/main.cpp)
 target_sources(rimeapi_lua PRIVATE $<TARGET_OBJECTS:core>)
 target_compile_definitions(rimeapi_lua PRIVATE BUILD_AS_LUA_MODULE)
@@ -147,7 +137,7 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}" CACHE PATH "Install path prefix" FORCE)
 endif()
 
-install(TARGETS lua rimeapi.app
+install(TARGETS lua
   RUNTIME DESTINATION .)
 
 install(TARGETS rimeapi_lua
