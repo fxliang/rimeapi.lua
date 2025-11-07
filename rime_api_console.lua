@@ -48,16 +48,22 @@ local api = RimeApi()
 
 -- message handler
 -- @param _ any not used
--- @param session_id RimeSession|integer
+-- @param session RimeSession|integer
 -- @param msg_type string
 -- @param msg_value string
 -- @return nil
-local function on_message(_, session_id, msg_type, msg_value)
+local function on_message(_, session, msg_type, msg_value)
   local BIT = jit and ((require('ffi').sizeof('void*') == 8) and 16 or 8) or ((string.packsize('T') == 8) and 16 or 8)
   -- session_id format
   local PFORMAT = "%0" .. BIT .. "X"
   local msg = "lua > message: ["..PFORMAT.."] [%s] %s"
-  print(msg:format(session_id, msg_type, msg_value))
+  local session_id = session
+  if type(session) == 'table' and session.id ~= nil then
+    session_id = session.id
+    print(("lua > message: [%s] [%s] %s"):format(session.str, msg_type, msg_value))
+  else
+    print(msg:format(tonumber(session), msg_type, msg_value))
+  end
   if msg_type == "option" then
     local state = msg_value:sub(1, 1) ~= "!"
     local option_name = state and msg_value or msg_value:sub(2)

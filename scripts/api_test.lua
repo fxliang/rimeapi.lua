@@ -22,14 +22,26 @@ else
 end
 rime_api:setup(traits)
 print('rime_api:setup passed')
-rime_api:set_notification_handler(function(_, session_id, msg_type, msg_value)
+rime_api:set_notification_handler(function(_, session, msg_type, msg_value)
   local BIT = jit and ((require('ffi').sizeof('void*') == 8) and 16 or 8) or ((string.packsize('T') == 8) and 16 or 8)
   -- session_id format
   local PFORMAT = "%0" .. BIT .. "X"
-  print(string.format("[api_test.lua][%s][%s]: %s",
-    string.format(PFORMAT, session_id),
-    tostring(msg_type or "nil"),
-    tostring(msg_value or "nil")))
+  local msg = "lua > message: ["..PFORMAT.."] [%s] %s"
+  local session_id = session
+  if type(session) == 'table' and session.id ~= nil then
+    session_id = session.id
+    print(("lua > message: [%s] [%s] %s"):format(session.str, msg_type, msg_value))
+  else
+    print(msg:format(tonumber(session), msg_type, msg_value))
+  end
+  if msg_type == "option" then
+    local state = msg_value:sub(1, 1) ~= "!"
+    local option_name = state and msg_value or msg_value:sub(2)
+    local state_label = rime_api:get_state_label(session_id, option_name, state)
+    if state_label and state_label ~= "" then
+      print(string.format("lua > updated option: %s = %s // %s", option_name, state, state_label))
+    end
+  end
 end)
 print('rime_api:set_notification_handler passed')
 rime_api:initialize(traits)

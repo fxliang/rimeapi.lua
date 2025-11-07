@@ -710,7 +710,14 @@ local function drain_notification_entry(entry)
     ctx.head = notification_queue_advance(head, capacity)
     notification_unlock()
 
-    local session = (event.session)
+    local session
+    if event.session ~= 0 then
+      local session_id = ffi.cast("RimeSessionId", event.session)
+      local ok, wrapped = pcall(RimeSession, session_id, { borrowed = true })
+      session = (ok and wrapped) and wrapped or session_id
+    else
+      session = 0
+    end
     local msg_type_str = event.type_len > 0 and ffi.string(event.msg_type, event.type_len) or nil
     local msg_value_str = event.value_len > 0 and ffi.string(event.msg_value, event.value_len) or nil
 
@@ -1242,26 +1249,62 @@ function RimeModule()
 end
 
 local MAX_SAFE_INTEGER = 9007199254740991 -- 2^53 - 1
-function RimeSession()
+function RimeSession(session_id, opts)
+  local options = opts
+  if type(session_id) == 'table' and opts == nil then
+    options = session_id
+    session_id = nil
+  end
+
+  local borrowed = (type(options) == 'table' and options.borrowed) or false
+
   local session = ffi.new("RimeSession")
-  session.id = 0
+  if session_id ~= nil then
+    if ffi.istype("RimeSessionId", session_id) then
+      session.id = session_id
+    elseif type(session_id) == 'number' then
+      session.id = ffi.cast("RimeSessionId", session_id)
+    else
+      error("invalid session_id type")
+    end
+  else
+    session.id = 0
+  end
+
   local obj = { _c = session }
   local mt = {
     __index = function(_, k)
       if k == 'id' then
         return obj._c.id > MAX_SAFE_INTEGER and ffi.cast("RimeSessionId", obj._c.id) or tonumber(obj._c.id)
-      elseif k == 'str' then 
+      elseif k == 'str' then
         local BIT = jit and ((require('ffi').sizeof('void*') == 8) and 16 or 8) or ((string.packsize('T') == 8) and 16 or 8)
         local PFORMAT = "%0" .. BIT .. "X"
         local id = obj._c.id > MAX_SAFE_INTEGER and ffi.cast("RimeSessionId", obj._c.id) or tonumber(obj._c.id)
         return (PFORMAT:format(id))
       elseif k == 'type' then return 'RimeSession'
+      elseif k == 'borrowed' then return borrowed
       end
     end,
     __newindex = function(_, k, v) error("RimeSession is read-only") end,
-    ffi.gc(obj._c, function(cdata) ensure_api().destroy_session(cdata.id) end),
+    __eq = function(_, other)
+      local current_id = tonumber(obj._c.id)
+      if current_id == nil then return false end
+      if type(other) == 'number' then
+        return current_id == tonumber(other)
+      elseif ffi.istype("RimeSessionId", other) then
+        return current_id == tonumber(other)
+      elseif type(other) == 'table' and other._c and ffi.istype("RimeSession", other._c) then
+        return tonumber(obj._c.id) == tonumber(other._c.id)
+      end
+      return false
+    end,
   }
   setmetatable(obj, mt)
+
+  if not borrowed then
+    ffi.gc(obj._c, function(cdata) ensure_api().destroy_session(cdata.id) end)
+  end
+
   return obj
 end
 local tosessionid = function(session_id)

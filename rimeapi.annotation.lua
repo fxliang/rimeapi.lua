@@ -135,7 +135,7 @@
 
 ---@class RimeApi
 ---@field setup fun(self: self, traits: RimeTraits): nil
----@field set_notification_handler fun(self: self, handler: (fun(context_object: any, session_id: integer, msg_type: string, msg_value: any)) | nil): nil
+---@field set_notification_handler fun(self: self, handler: (fun(context_object: any, session: RimeSession|integer, msg_type: string, msg_value: any)) | nil): nil
 ---@field initialize fun(self: self, traits: RimeTraits): nil
 ---@field finalize fun(self: self): nil
 ---@field start_maintenance fun(self: self, full_check: boolean): boolean
