@@ -134,6 +134,59 @@ local function collect_chunk(history, prompt, continuation_prompt, initial_text)
   end
 end
 
+local function supports_color()
+  if os.getenv('NO_COLOR') then return false end
+  if io.type(io.stdout) == 'file' then
+    if os.getenv('TERM') and os.getenv('TERM') ~= 'dumb' then
+      if os.getenv('COLORTERM') then return true end
+      local term = os.getenv('TERM'):lower()
+      if term:match('xterm') or term:match('screen') or term:match('vt100') or term:match('linux') then
+        return true
+      end
+    end
+  else return true end
+  if os.getenv('TERM_PROGRAM') or os.getenv('COLORTERM') then return true end
+  return false
+end
+
+-- Format REPL errors with optional color, source line context, caret for syntax
+local function format_repl_error(chunk, err, kind)
+  local use_color = os.getenv('NO_COLOR') == nil and supports_color()
+  local red = use_color and '\27[31m' or ''
+  local bold = use_color and '\27[1m' or ''
+  local reset = use_color and '\27[0m' or ''
+  local msg = tostring(err)
+  if kind == 'syntax' then
+    local line_no, detail = msg:match('%(repl%):(%d+):%s*(.+)')
+    local out = { string.format('%sError:%s %s%s%s', red, reset, bold, detail or msg, reset) }
+    if line_no then
+      local ln = tonumber(line_no)
+      local lines = {}
+      for s in (chunk .. '\n'):gmatch('(.-)\n') do lines[#lines + 1] = s end
+      local src = lines[ln] or ''
+      out[#out + 1] = string.format('  at line %d: %s', ln, src)
+      local near_token = detail and detail:match("near '([^']+)'") or nil
+      if near_token and src ~= '' then
+        local pos = src:find(near_token, 1, true)
+        if pos then
+          local caret = string.rep(' ', pos - 1) .. (use_color and red or '') .. string.rep('^', #near_token) .. reset
+          out[#out + 1] = '             ' .. caret
+        end
+      end
+    end
+    return table.concat(out, '\n')
+  else
+    -- runtime or other errors: include traceback filtered to (repl) frames
+    local tb = debug.traceback(err, 2)
+    local filtered = {}
+    for line in tb:gmatch('[^\n]+') do
+      if line:find('=(repl%)') or line:find('%(repl%)') then filtered[#filtered + 1] = line end
+    end
+    if #filtered == 0 then filtered[#filtered + 1] = tb end
+    return string.format('%sError:%s %s%s%s\n%s', red, reset, bold, msg, reset, table.concat(filtered, '\n'))
+  end
+end
+
 local function run_script(script_path, extras)
   ensure_package_path(dirname(script_path))
   set_arg_table(script_path, extras)
@@ -182,7 +235,7 @@ local function repl()
     elseif status == 'syntax' then
       history[#history + 1] = chunk
       if linenoise then pcall(linenoise.addhistory, chunk) end
-      print('Error: ' .. tostring(err))
+      print(format_repl_error(chunk, err, 'syntax'))
     else
       history[#history + 1] = chunk
       if linenoise then
@@ -191,7 +244,7 @@ local function repl()
 
       local results = pack(pcall(fn))
       if not results[1] then
-        print('Error: ' .. tostring(results[2]))
+        print(format_repl_error(chunk, results[2], 'runtime'))
       else
         if results.n > 1 then
           for i = 2, results.n do
