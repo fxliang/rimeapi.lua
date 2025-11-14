@@ -156,6 +156,13 @@ local function create_posix_line_reader()
         refresh_line()
       end
 
+      -- prefill support (only on first loop iteration)
+      local prefill = opts and opts.initial_text
+      if type(prefill) == 'string' and prefill ~= '' then
+        set_buffer(prefill)
+        refresh_line()
+      end
+
       while true do
         local ch = io.stdin:read(1)
         if not ch then return nil, 'eof' end
@@ -300,6 +307,10 @@ local posix_line_reader = create_posix_line_reader()
 LineEditor = {
   read_line = function(prompt, history, opts)
     if linenoise then
+      local prefill = opts and opts.initial_text
+      if prefill and type(linenoise.preloadbuffer) == 'function' then
+        pcall(linenoise.preloadbuffer, prefill)
+      end
       local line = linenoise.linenoise(prompt)
       if line and has_visible_chars(line) then pcall(linenoise.addhistory, line) end
       if line == nil then return nil, 'interrupt' end

@@ -96,13 +96,19 @@ local function try_compile_chunk(chunk)
   return nil, false, err
 end
 
-local function collect_chunk(history, prompt, continuation_prompt)
+local function collect_chunk(history, prompt, continuation_prompt, initial_text)
   local lines = {}
   local current_prompt = prompt
-  local opts = { continuation_prompt = continuation_prompt }
+  local first = true
+  local opts = { continuation_prompt = continuation_prompt, initial_text = initial_text }
 
   while true do
     local line, tag = LineEditor.read_line(current_prompt, history, opts)
+    if first then
+      -- after first read, drop initial_text so subsequent continuation lines do not prefill again
+      opts.initial_text = nil
+      first = false
+    end
     if line == nil then
       return nil, nil, false, tag
     end
@@ -121,7 +127,9 @@ local function collect_chunk(history, prompt, continuation_prompt)
     if err_str:find('<eof>', 1, true) then
       current_prompt = continuation_prompt
     else
-      return nil, nil, false, 'syntax', err
+      -- Return the typed chunk alongside the syntax error so callers can
+      -- prefill it for editing and optionally push it to history.
+      return chunk, nil, false, 'syntax', err
     end
   end
 end
@@ -155,15 +163,15 @@ local function repl()
   local prompt = '> '
   local continuation_prompt = '>> '
   local interrupted = false
+  local prefill_next = nil
 
   while true do
-    local chunk, fn, is_expr, status, err = collect_chunk(history, prompt, continuation_prompt)
+    local chunk, fn, is_expr, status, err = collect_chunk(history, prompt, continuation_prompt, prefill_next)
+    prefill_next = nil
     if chunk == nil then
       if status == 'interrupt' then
         interrupted = true
         break
-      elseif status == 'syntax' and err then
-        print('Error: ' .. tostring(err))
       elseif status == 'eof' then
         break
       else
@@ -171,6 +179,10 @@ local function repl()
       end
     elseif status == 'blank' or not LineEditor.has_visible_chars(chunk) then
       -- ignore empty submissions
+    elseif status == 'syntax' then
+      history[#history + 1] = chunk
+      if linenoise then pcall(linenoise.addhistory, chunk) end
+      print('Error: ' .. tostring(err))
     else
       history[#history + 1] = chunk
       if linenoise then
