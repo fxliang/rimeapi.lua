@@ -87,6 +87,7 @@ jobs:
           cp ./rime_api_console.lua ./dist/
           cp ./librime.*.dylib ./dist/
           cp -r ./rime-plugins ./dist/
+          cp ./LICENSE ./dist/
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
@@ -256,6 +257,7 @@ jobs:
           cp ./README.md ./dist/
           cp ./rime_api_console.lua ./dist/
           cp ./rime.dll ./dist/
+          cp ./LICENSE ./dist/
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
