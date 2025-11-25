@@ -4,7 +4,7 @@
 This module provides a set of functions to interact with the Rime Input Method Engine, allowing users to reference **librime api**, **librime levers** api related functionalities programmatically.
 
 ## Build Instructions
-To build the shared library, xmake is required. Follow these steps:
+To build the shared library, xmake is required. Follow these steps(or follow workflow in `./.github/workflows/ci.yml`):
 
 - install `xmake` or `cmake`, `git`, and compiler tools for your system
 - clone the repository
@@ -30,5 +30,7 @@ To build the shared library, xmake is required. Follow these steps:
 
 ## Credites
 
-- [librime](https://github.com/rime/librime) RIME: Rime Input Method Engine
-- [librime-lua](https://github.com/hchunhui/librime-lua) librime-lua: Extending RIME with Lua scripts. The lua binding codes is a mod from it.
+- [librime](https://github.com/rime/librime) (The 3-Clause BSD License) RIME: Rime Input Method Engine
+- [librime-lua](https://github.com/hchunhui/librime-lua) (The 3-Clause BSD License) librime-lua: Extending RIME with Lua scripts. The lua binding codes is a mod from it.
+- [lua](https://www.lua.org/) (The MIT License) Lua: Powerful, efficient, lightweight, embeddable scripting language.
+- [luajit](https://luajit.org/) (The MIT License) LuaJIT: Just-In-Time Compiler for Lua.
