@@ -306,10 +306,19 @@ ffi.cdef[[
 os.mkdir = function (path)
   if type(path) ~= "string" or path == "" then return false end
   if ffi.os == "Windows" then
-    ffi.cdef[[ int _mkdir(const char *pathname); ]]
-    local r = ffi.C._mkdir(path)
-    if r == 0 or (ffi.errno() == 17) then return true end
-    return false
+    local path_utf8 = path .. "\0"
+    ffi.cdef[[
+      int CreateDirectoryW(const wchar_t *lpPathName, void *lpSecurityAttributes);
+      unsigned long GetLastError();
+    ]]
+    local wpath = ffi.cast("const wchar_t*", path_utf8)
+    local r = ffi.C.CreateDirectoryW(wpath, nil)
+
+    if r ~= 0 then return true
+    else
+      local err = ffi.C.GetLastError()
+      return (err == 183)  -- ERROR_ALREADY_EXISTS
+    end
   else
     ffi.cdef[[
       typedef struct DIR DIR;
