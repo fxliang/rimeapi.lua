@@ -129,20 +129,27 @@ local function test_func()
   local function deploy_patch(patch_lines)
     if not patch_lines then return end
     finalize()
-    local f = io.open(traits.user_data_dir .. '/' .. schema_id .. '.custom.yaml', 'w')
-    assert(f, 'Failed to open custom schema file for writing')
-    local content = 'patch:'
+    local levers = RimeLeversApi()
+    local settings = levers:custom_settings_init(schema_id, 'schema_tester.lua')
+    assert(levers:load_settings(settings) ~= nil, 'Failed to load settings')
     for _, line in pairs(patch_lines) do
-      content = content .. '\n  ' .. line
+      assert(type(line) == 'table' and line.key ~= nil and line.value ~= nil,
+        'Invalid patch line: ' .. tostring(line))
+      local patch = RimeConfig()
+      assert(rime_api:config_load_string(patch, line.value) == true,
+        'Failed to load config from string: ' .. tostring(line.value))
+      assert(levers:customize_item(settings, line.key, patch) == true,
+        'Failed to customize item: ' .. tostring(line.key))
+      assert(levers:save_settings(settings) == true, 'Failed to save settings')
     end
-    f:write(content)
-    f:close()
+    levers:custom_settings_destroy(settings)
     init()
   end
   local remove_patch = function(patch_lines)
     if not patch_lines then return end
     local filepath = traits.user_data_dir .. '/' .. schema_id .. '.custom.yaml'
     os.remove(filepath)
+    init()
   end
 
   for k_deploy, v_deploy in pairs(config.deploy) do

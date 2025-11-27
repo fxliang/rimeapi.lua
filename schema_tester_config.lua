@@ -17,8 +17,9 @@ return {
       },
     },
     patch = {
-      -- one line patch supported only for now
-      patch = { 'engine/translators: []' },
+      patch = {
+        { key = 'engine/translators', value = '[]' },
+      },
       tests = {
         { send = 'ceshi', assert = "#cand == 0" }
       },
