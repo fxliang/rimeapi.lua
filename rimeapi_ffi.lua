@@ -303,22 +303,27 @@ ffi.cdef[[
 ]]
 -------------------------------------------------------------------------------
 --- os.mkdir function
-os.mkdir = function (path)
+os.mkdir = function (path, codepage)
   if type(path) ~= "string" or path == "" then return false end
   if ffi.os == "Windows" then
-    local path_utf8 = path .. "\0"
     ffi.cdef[[
+      int MultiByteToWideChar(unsigned int CodePage, unsigned long dwFlags,
+      const char *lpMultiByteStr, int cbMultiByte,
+      wchar_t *lpWideCharStr, int cchWideChar);
       int CreateDirectoryW(const wchar_t *lpPathName, void *lpSecurityAttributes);
       unsigned long GetLastError();
     ]]
-    local wpath = ffi.cast("const wchar_t*", path_utf8)
-    local r = ffi.C.CreateDirectoryW(wpath, nil)
+    if not codepage then codepage = 65001 end -- UTF-8
+    local len = ffi.C.MultiByteToWideChar(codepage, 0, path, -1, nil, 0)
+    if len == 0 then return false end
 
-    if r ~= 0 then return true
-    else
-      local err = ffi.C.GetLastError()
-      return (err == 183)  -- ERROR_ALREADY_EXISTS
+    local wpath = ffi.new("wchar_t[?]", len)
+    if ffi.C.MultiByteToWideChar(codepage, 0, path, -1, wpath, len) == 0 then
+      return false
     end
+
+    local r = ffi.C.CreateDirectoryW(wpath, nil)
+    return (r ~= 0) and true or (ffi.C.GetLastError() == 183)
   else
     ffi.cdef[[
       typedef struct DIR DIR;

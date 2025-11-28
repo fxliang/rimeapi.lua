@@ -2269,7 +2269,25 @@ namespace RimeLeversApiReg {
 
 static int os_trymkdir(lua_State* L) {
   const char* path = luaL_checkstring(L, 1);
+#ifdef WIN32
+  unsigned int codepage = 65001; // UTF-8
+  if (lua_gettop(L) > 1) {
+    codepage = (unsigned int)luaL_checkinteger(L, 2);
+  }
+  int len = MultiByteToWideChar(codepage, 0, path, -1, nullptr, 0);
+  if (len <= 0) {
+    lua_pushboolean(L, false);
+    return 1;
+  }
+  std::wstring wpath(len, L'\0');
+  if(len <= 0 || MultiByteToWideChar(codepage, 0, path, -1, &wpath[0], len) == 0) {
+    lua_pushboolean(L, false);
+    return 1;
+  }
+  std::filesystem::path p(wpath);
+#else
   std::filesystem::path p(path);
+#endif
   std::error_code ec;
   bool created = std::filesystem::create_directories(p, ec);
   if (ec) lua_pushboolean(L, false);
