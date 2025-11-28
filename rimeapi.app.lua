@@ -274,14 +274,18 @@ end
 
 local function main()
   local script, extras = collect_cli()
+  local cp = set_console_codepage()
   if script then
     local ok = run_script(script, extras)
+    set_console_codepage(cp)
     os.exit(ok and 0 or 1)
   else
     local interrupted = repl()
     if interrupted then
+      set_console_codepage(cp)
       os.exit(130)
     else
+      set_console_codepage(cp)
       os.exit(0)
     end
   end

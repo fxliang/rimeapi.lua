@@ -411,6 +411,7 @@ else
     typedef const char* LPCSTR;
     typedef void* FARPROC;
     unsigned int SetConsoleOutputCP(unsigned int code_page);
+    unsigned int SetConsoleCP(unsigned int code_page);
     unsigned int GetConsoleOutputCP();
     HMODULE LoadLibraryA(LPCSTR lpLibFileName);
     HANDLE GetProcAddress(HMODULE hModule, LPCSTR lpProcName);
@@ -419,6 +420,7 @@ else
     if codepage == nil then codepage = 65001 end -- UTF-8
     local orig_cp = ffi.C.GetConsoleOutputCP()
     ffi.C.SetConsoleOutputCP(codepage)
+    ffi.C.SetConsoleCP(codepage)
     return orig_cp
   end
   local librime = ffi.C.LoadLibraryA('rime.dll')
@@ -426,7 +428,6 @@ else
   rime_get_api_func = ffi.cast("RimeApi* (*)()", ffi.C.GetProcAddress(librime, "rime_get_api"))
   api = rime_get_api_func()
   if not api then error('failed to get rime api') end
-  print('loaded librime version ' .. safestr(api.get_version()))
 end
 if not api then error('failed to get rime api') end
 

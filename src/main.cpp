@@ -15,6 +15,7 @@
 inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = CP_UTF8) {
   unsigned int cp = GetConsoleOutputCP();
   SetConsoleOutputCP(codepage);
+  SetConsoleCP(codepage);
   return cp;
 }
 HMODULE librime;
