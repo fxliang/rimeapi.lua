@@ -114,6 +114,10 @@ $webRequestParams = @{
   Uri = $apiUrl
   Headers = @{ Accept = "application/vnd.github.v3+json" }
 }
+# Use GITHUB_TOKEN environment variable if available and $authorization is not set
+if (!$authorization -and $env:GITHUB_TOKEN) {
+  $authorization = $env:GITHUB_TOKEN
+}
 if (($api_pat -match "^https://api.github.com.*$") -and $authorization) {
   $webRequestParams.Headers.Authorization = "token $authorization"
 } elseif ($authorization) {
