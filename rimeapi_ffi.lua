@@ -301,28 +301,50 @@ ffi.cdef[[
   }RimeSession;
   RimeApi* rime_get_api(void);
 ]]
+
+local function to_acp_path(path, cp)
+  local real_path = path
+  if ffi and ffi.os == "Windows" then
+    ffi.cdef[[
+      int MultiByteToWideChar(unsigned int CodePage, unsigned long dwFlags,
+                              const char *lpMultiByteStr, int cbMultiByte,
+                              wchar_t *lpWideCharStr, int cchWideChar);
+      int WideCharToMultiByte(unsigned int CodePage, unsigned long dwFlags,
+                              const wchar_t *lpWideCharStr, int cchWideChar,
+                              char *lpMultiByteStr, int cbMultiByte,
+                              const char *lpDefaultChar, int *lpUsedDefaultChar);
+      unsigned int GetACP(void);
+    ]]
+
+    -- cp -> UTF-16
+    cp = cp or 65001
+    local wlen = ffi.C.MultiByteToWideChar(cp, 0, path, -1, nil, 0)
+    if wlen == 0 then return false end
+    local wpath = ffi.new("wchar_t[?]", wlen)
+    ffi.C.MultiByteToWideChar(cp, 0, path, -1, wpath, wlen)
+
+    -- UTF-16 -> ACP
+    local acp = ffi.C.GetACP()
+    local acplen = ffi.C.WideCharToMultiByte(acp, 0, wpath, -1, nil, 0, nil, nil)
+    if acplen == 0 then return false end
+    local acppath = ffi.new("char[?]", acplen)
+    ffi.C.WideCharToMultiByte(acp, 0, wpath, -1, acppath, acplen, nil, nil)
+
+    real_path = ffi.string(acppath)
+  end
+  return real_path
+end
 -------------------------------------------------------------------------------
 --- os.mkdir function
-os.mkdir = function (path, codepage)
+os.mkdir = type(os.mkdir) == 'function' and os.mkdir or function (path, codepage)
   if type(path) ~= "string" or path == "" then return false end
   if ffi.os == "Windows" then
     ffi.cdef[[
-      int MultiByteToWideChar(unsigned int CodePage, unsigned long dwFlags,
-      const char *lpMultiByteStr, int cbMultiByte,
-      wchar_t *lpWideCharStr, int cchWideChar);
-      int CreateDirectoryW(const wchar_t *lpPathName, void *lpSecurityAttributes);
+      int CreateDirectoryA(const char *lpPathName, void *lpSecurityAttributes);
       unsigned long GetLastError();
     ]]
-    if not codepage then codepage = 65001 end -- UTF-8
-    local len = ffi.C.MultiByteToWideChar(codepage, 0, path, -1, nil, 0)
-    if len == 0 then return false end
 
-    local wpath = ffi.new("wchar_t[?]", len)
-    if ffi.C.MultiByteToWideChar(codepage, 0, path, -1, wpath, len) == 0 then
-      return false
-    end
-
-    local r = ffi.C.CreateDirectoryW(wpath, nil)
+    local r = ffi.C.CreateDirectoryA(to_acp_path(path, codepage), nil)
     return (r ~= 0) and true or (ffi.C.GetLastError() == 183)
   else
     ffi.cdef[[
@@ -382,7 +404,7 @@ end
 --- load librime and get rime api
 local api
 local rime_get_api_func
-local is_termux = os.getenv('PREFIX') and string.match(os.getenv("PREFIX"), ('/data/data/com.termux/files/usr')) ~= nil or false
+local is_termux = os.getenv('PREFIX') and string.match(os.getenv("PREFIX") or '', ('/data/data/com.termux/files/usr')) ~= nil or false
 if ffi.os == "Linux" or ffi.os == "OSX" then
   ffi.cdef[[
     void* dlopen(const char *filename, int flag);
@@ -458,304 +480,18 @@ local function get_levers_api()
   end
   return levers_api
 end
-local pthread_mutex_defined = false
-local critical_section_defined = false
 
-local function create_notification_mutex()
-  if ffi.os == "Windows" then
-    if not critical_section_defined then
-      ffi.cdef[[
-        typedef struct _RTL_CRITICAL_SECTION {
-          void* DebugInfo;
-          long LockCount;
-          long RecursionCount;
-          void* OwningThread;
-          void* LockSemaphore;
-          uintptr_t SpinCount;
-        } CRITICAL_SECTION;
-
-        void InitializeCriticalSection(CRITICAL_SECTION* lpCriticalSection);
-        void EnterCriticalSection(CRITICAL_SECTION* lpCriticalSection);
-        void LeaveCriticalSection(CRITICAL_SECTION* lpCriticalSection);
-        void DeleteCriticalSection(CRITICAL_SECTION* lpCriticalSection);
-      ]]
-      critical_section_defined = true
-    end
-
-    local storage = ffi.new("CRITICAL_SECTION[1]")
-    ffi.C.InitializeCriticalSection(storage)
-
-    local mutex = { _storage = storage }
-    function mutex.lock()
-      ffi.C.EnterCriticalSection(storage)
-    end
-    function mutex.unlock()
-      ffi.C.LeaveCriticalSection(storage)
-    end
-
-    ffi.gc(storage, function(sec)
-      ffi.C.DeleteCriticalSection(sec)
-    end)
-
-    return mutex
-  else
-    if not pthread_mutex_defined then
-      if ffi.os == "OSX" then
-        ffi.cdef[[
-          typedef struct _opaque_pthread_mutex_t {
-            long __sig;
-            char __opaque[56];
-          } pthread_mutex_t;
-
-          typedef struct _opaque_pthread_mutexattr_t {
-            long __sig;
-            char __opaque[8];
-          } pthread_mutexattr_t;
-        ]]
-      else
-        ffi.cdef[[
-          typedef union {
-            char __size[40];
-            long int __align;
-          } pthread_mutex_t;
-
-          typedef union {
-            char __size[4];
-            long int __align;
-          } pthread_mutexattr_t;
-        ]]
-      end
-
-      ffi.cdef[[
-        int pthread_mutex_init(pthread_mutex_t* mutex, const pthread_mutexattr_t* attr);
-        int pthread_mutex_lock(pthread_mutex_t* mutex);
-        int pthread_mutex_unlock(pthread_mutex_t* mutex);
-        int pthread_mutex_destroy(pthread_mutex_t* mutex);
-      ]]
-
-      pthread_mutex_defined = true
-    end
-
-    local storage = ffi.new("pthread_mutex_t[1]")
-    local rc = ffi.C.pthread_mutex_init(storage, nil)
-    if rc ~= 0 then
-      return nil, rc
-    end
-
-    local mutex = { _storage = storage }
-    function mutex.lock()
-      local err = ffi.C.pthread_mutex_lock(storage)
-      if err ~= 0 then
-        error("pthread_mutex_lock failed: " .. tostring(err))
-      end
-    end
-    function mutex.unlock()
-      local err = ffi.C.pthread_mutex_unlock(storage)
-      if err ~= 0 then
-        error("pthread_mutex_unlock failed: " .. tostring(err))
-      end
-    end
-
-    ffi.gc(storage, function(ptr)
-      ffi.C.pthread_mutex_destroy(ptr)
-    end)
-
-    return mutex
+function file_exists(path, cp)
+  if type(path) ~= 'string' or path == '' then return false end
+  if os.isdir(path, cp) then return true end
+  local real_path = to_acp_path(path, cp)
+  local f = io.open(real_path, 'r')
+  if f then
+    f:close()
+    return true
   end
+  return false
 end
-
-local notification_mutex
-do
-  local ok, res, err = pcall(create_notification_mutex)
-  if ok and res ~= nil then
-    notification_mutex = res
-  else
-    local stderr = io.stderr
-    if stderr and stderr.write then
-      stderr:write("[rimeapi_ffi] warning: notification mutex unavailable: " .. tostring(err or res) .. "\n")
-    end
-    notification_mutex = nil
-  end
-end
-
-local function notification_lock()
-  if notification_mutex and notification_mutex.lock then
-    notification_mutex.lock()
-  end
-end
-
-local function notification_unlock()
-  if notification_mutex and notification_mutex.unlock then
-    notification_mutex.unlock()
-  end
-end
-
-local notification_entries = {}
-local notification_entry_counter = 0
-
-local MAX_NOTIFICATION_QUEUE = 64
-local MAX_NOTIFICATION_TYPE_LEN = 64
-local MAX_NOTIFICATION_VALUE_LEN = 1024
-
-local NotificationContextStruct = ffi.typeof(string.format([[struct {
-  intptr_t entry_id;
-  unsigned int capacity;
-  volatile unsigned int head;
-  volatile unsigned int tail;
-  volatile unsigned int active;
-  struct {
-    uintptr_t session;
-    unsigned int type_len;
-    unsigned int value_len;
-    char msg_type[%d];
-    char msg_value[%d];
-  } events[%d];
-}]], MAX_NOTIFICATION_TYPE_LEN, MAX_NOTIFICATION_VALUE_LEN, MAX_NOTIFICATION_QUEUE))
-
-local NotificationContextPtr = ffi.typeof("$*", NotificationContextStruct)
-
-local notification_callback_c
-
-local function copy_cstring(dst, src, max_len)
-  if dst == nil or max_len <= 0 then return 0 end
-  local dst_ptr = ffi.cast("unsigned char*", dst)
-  if src == nil or src == ffi.NULL then
-    dst_ptr[0] = 0
-    return 0
-  end
-  local src_ptr = ffi.cast("const unsigned char*", src)
-  local i = 0
-  local limit = max_len - 1
-  while i < limit do
-    local byte = src_ptr[i]
-    if byte == 0 then break end
-    dst_ptr[i] = byte
-    i = i + 1
-  end
-  dst_ptr[i] = 0
-  return i
-end
-
-local function notification_queue_empty(ctx)
-  return ctx == nil or ctx.head == ctx.tail
-end
-
-local function notification_queue_advance(index, capacity)
-  index = index + 1
-  if index >= capacity then index = 0 end
-  return index
-end
-
-local function cleanup_notification_entry(entry_id)
-  if entry_id == nil then return end
-  local entry = notification_entries[entry_id]
-  if not entry then return end
-  local ctx = entry.ctx
-  local queue_empty = true
-  if ctx ~= nil then
-    queue_empty = (ctx.head == ctx.tail)
-  end
-  if not entry.active and queue_empty then
-    if ctx then ctx.active = 0 end
-    notification_entries[entry_id] = nil
-  end
-end
-
-local function get_notification_callback()
-  if notification_callback_c == nil then
-    local function bridge(context_object, session_id, msg_type, msg_value)
-      if context_object == nil or context_object == ffi.NULL then return end
-      local ctx = ffi.cast(NotificationContextPtr, context_object)
-      if ctx == nil then return end
-
-      notification_lock()
-      if ctx.active == 0 then
-        notification_unlock()
-        return
-      end
-
-      local capacity = ctx.capacity
-      if capacity == 0 then capacity = MAX_NOTIFICATION_QUEUE end
-      local head = ctx.head
-      local tail = ctx.tail
-      local next_tail = notification_queue_advance(tail, capacity)
-      if next_tail == head then
-        head = notification_queue_advance(head, capacity)
-        ctx.head = head
-      end
-
-      local event = ctx.events[tail]
-      event.session = ffi.cast("uintptr_t", session_id)
-      event.type_len = copy_cstring(event.msg_type, msg_type, MAX_NOTIFICATION_TYPE_LEN)
-      event.value_len = copy_cstring(event.msg_value, msg_value, MAX_NOTIFICATION_VALUE_LEN)
-
-      ctx.tail = next_tail
-      notification_unlock()
-    end
-
-    notification_callback_c = ffi.cast("RimeNotificationHandler", bridge)
-  end
-  return notification_callback_c
-end
-
-local function drain_notification_entry(entry)
-  local ctx = entry.ctx
-  if ctx == nil then return end
-
-  if not entry.active then
-    notification_lock()
-    ctx.head = ctx.tail
-    notification_unlock()
-    cleanup_notification_entry(entry.id)
-    return
-  end
-
-  local capacity = ctx.capacity
-  if capacity == 0 then capacity = MAX_NOTIFICATION_QUEUE end
-
-  while true do
-    notification_lock()
-    local head = ctx.head
-    local tail = ctx.tail
-    if head == tail then
-      notification_unlock()
-      break
-    end
-    local event = ctx.events[head]
-    ctx.head = notification_queue_advance(head, capacity)
-    notification_unlock()
-
-    local session
-    if event.session ~= 0 then
-      local session_id = ffi.cast("RimeSessionId", event.session)
-      local ok, wrapped = pcall(RimeSession, session_id, { borrowed = true })
-      session = (ok and wrapped) and wrapped or session_id
-    else
-      session = 0
-    end
-    local msg_type_str = event.type_len > 0 and ffi.string(event.msg_type, event.type_len) or nil
-    local msg_value_str = event.value_len > 0 and ffi.string(event.msg_value, event.value_len) or nil
-
-    local ok, err = entry.invoker(entry, session, msg_type_str, msg_value_str)
-    if not ok then
-      local stderr = io.stderr
-      if stderr and stderr.write then
-        stderr:write("[rimeapi_ffi] notification handler error: " .. tostring(err) .. "\n")
-      end
-    end
-  end
-
-  if not entry.active then
-    cleanup_notification_entry(entry.id)
-  end
-end
-
-local function drain_notifications()
-  for _, entry in pairs(notification_entries) do
-    drain_notification_entry(entry)
-  end
-end
-
 -------------------------------------------------------------------------------
 local Set = {}
 Set.__index = Set
@@ -1322,17 +1058,7 @@ function RimeSession(session_id, opts)
 
   return obj
 end
-local tosessionid = function(session_id)
-  if type(session_id) == 'number' then
-    return ffi.cast("RimeSessionId", session_id)
-  elseif ffi.istype("RimeSessionId", session_id) then
-    return session_id
-  elseif type(session_id) == 'table' and session_id._c ~= nil and ffi.istype("RimeSession", session_id._c) then
-    return ffi.cast("RimeSessionId", session_id._c.id)
-  else
-    error("invalid session_id type")
-  end
-end
+
 function RimeStringSlice()
   local slice = ffi.new("RimeStringSlice")
   slice.str = nil
@@ -1432,6 +1158,311 @@ end
 -------------------------------------------------------------------------------
 --- get rime api end
 function RimeApi()
+  local tosessionid = function(session_id)
+    if type(session_id) == 'number' then
+      return ffi.cast("RimeSessionId", session_id)
+    elseif ffi.istype("RimeSessionId", session_id) then
+      return session_id
+    elseif type(session_id) == 'table' and session_id._c ~= nil and ffi.istype("RimeSession", session_id._c) then
+      return ffi.cast("RimeSessionId", session_id._c.id)
+    else
+      error("invalid session_id type")
+    end
+  end
+
+  local pthread_mutex_defined = false
+  local critical_section_defined = false
+
+  local function create_notification_mutex()
+    if ffi.os == "Windows" then
+      if not critical_section_defined then
+        ffi.cdef[[
+        typedef struct _RTL_CRITICAL_SECTION {
+          void* DebugInfo;
+          long LockCount;
+          long RecursionCount;
+          void* OwningThread;
+          void* LockSemaphore;
+          uintptr_t SpinCount;
+        } CRITICAL_SECTION;
+
+        void InitializeCriticalSection(CRITICAL_SECTION* lpCriticalSection);
+        void EnterCriticalSection(CRITICAL_SECTION* lpCriticalSection);
+        void LeaveCriticalSection(CRITICAL_SECTION* lpCriticalSection);
+        void DeleteCriticalSection(CRITICAL_SECTION* lpCriticalSection);
+        ]]
+        critical_section_defined = true
+      end
+
+      local storage = ffi.new("CRITICAL_SECTION[1]")
+      ffi.C.InitializeCriticalSection(storage)
+
+      local mutex = { _storage = storage }
+      function mutex.lock()
+        ffi.C.EnterCriticalSection(storage)
+      end
+      function mutex.unlock()
+        ffi.C.LeaveCriticalSection(storage)
+      end
+
+      ffi.gc(storage, function(sec)
+        ffi.C.DeleteCriticalSection(sec)
+      end)
+
+      return mutex
+    else
+      if not pthread_mutex_defined then
+        if ffi.os == "OSX" then
+          ffi.cdef[[
+          typedef struct _opaque_pthread_mutex_t {
+            long __sig;
+            char __opaque[56];
+          } pthread_mutex_t;
+
+          typedef struct _opaque_pthread_mutexattr_t {
+            long __sig;
+            char __opaque[8];
+          } pthread_mutexattr_t;
+          ]]
+        else
+          ffi.cdef[[
+          typedef union {
+            char __size[40];
+            long int __align;
+          } pthread_mutex_t;
+
+          typedef union {
+            char __size[4];
+            long int __align;
+          } pthread_mutexattr_t;
+          ]]
+        end
+
+        ffi.cdef[[
+        int pthread_mutex_init(pthread_mutex_t* mutex, const pthread_mutexattr_t* attr);
+        int pthread_mutex_lock(pthread_mutex_t* mutex);
+        int pthread_mutex_unlock(pthread_mutex_t* mutex);
+        int pthread_mutex_destroy(pthread_mutex_t* mutex);
+        ]]
+
+        pthread_mutex_defined = true
+      end
+
+      local storage = ffi.new("pthread_mutex_t[1]")
+      local rc = ffi.C.pthread_mutex_init(storage, nil)
+      if rc ~= 0 then
+        return nil, rc
+      end
+
+      local mutex = { _storage = storage }
+      function mutex.lock()
+        local err = ffi.C.pthread_mutex_lock(storage)
+        if err ~= 0 then
+          error("pthread_mutex_lock failed: " .. tostring(err))
+        end
+      end
+      function mutex.unlock()
+        local err = ffi.C.pthread_mutex_unlock(storage)
+        if err ~= 0 then
+          error("pthread_mutex_unlock failed: " .. tostring(err))
+        end
+      end
+
+      ffi.gc(storage, function(ptr)
+        ffi.C.pthread_mutex_destroy(ptr)
+      end)
+
+      return mutex
+    end
+  end
+
+  local notification_mutex
+  do
+    local ok, res, err = pcall(create_notification_mutex)
+    if ok and res ~= nil then
+      notification_mutex = res
+    else
+      local stderr = io.stderr
+      if stderr and stderr.write then
+        stderr:write("[rimeapi_ffi] warning: notification mutex unavailable: " .. tostring(err or res) .. "\n")
+      end
+      notification_mutex = nil
+    end
+  end
+
+  local function notification_lock()
+    if notification_mutex and notification_mutex.lock then
+      notification_mutex.lock()
+    end
+  end
+
+  local function notification_unlock()
+    if notification_mutex and notification_mutex.unlock then
+      notification_mutex.unlock()
+    end
+  end
+
+  local notification_entries = {}
+  local notification_entry_counter = 0
+
+  local MAX_NOTIFICATION_QUEUE = 64
+  local MAX_NOTIFICATION_TYPE_LEN = 64
+  local MAX_NOTIFICATION_VALUE_LEN = 1024
+
+  local NotificationContextStruct = ffi.typeof(string.format([[struct {
+    intptr_t entry_id;
+    unsigned int capacity;
+    volatile unsigned int head;
+    volatile unsigned int tail;
+    volatile unsigned int active;
+    struct {
+      uintptr_t session;
+      unsigned int type_len;
+      unsigned int value_len;
+      char msg_type[%d];
+      char msg_value[%d];
+    } events[%d];
+  }]], MAX_NOTIFICATION_TYPE_LEN, MAX_NOTIFICATION_VALUE_LEN, MAX_NOTIFICATION_QUEUE))
+
+  local NotificationContextPtr = ffi.typeof("$*", NotificationContextStruct)
+
+  local notification_callback_c
+
+  local function copy_cstring(dst, src, max_len)
+    if dst == nil or max_len <= 0 then return 0 end
+    local dst_ptr = ffi.cast("unsigned char*", dst)
+    if src == nil or src == ffi.NULL then
+      dst_ptr[0] = 0
+      return 0
+    end
+    local src_ptr = ffi.cast("const unsigned char*", src)
+    local i = 0
+    local limit = max_len - 1
+    while i < limit do
+      local byte = src_ptr[i]
+      if byte == 0 then break end
+      dst_ptr[i] = byte
+      i = i + 1
+    end
+    dst_ptr[i] = 0
+    return i
+  end
+
+  local function notification_queue_advance(index, capacity)
+    index = index + 1
+    if index >= capacity then index = 0 end
+    return index
+  end
+
+  local function cleanup_notification_entry(entry_id)
+    if entry_id == nil then return end
+    local entry = notification_entries[entry_id]
+    if not entry then return end
+    local ctx = entry.ctx
+    local queue_empty = true
+    if ctx ~= nil then
+      queue_empty = (ctx.head == ctx.tail)
+    end
+    if not entry.active and queue_empty then
+      if ctx then ctx.active = 0 end
+      notification_entries[entry_id] = nil
+    end
+  end
+
+  local function get_notification_callback()
+    if notification_callback_c == nil then
+      local function bridge(context_object, session_id, msg_type, msg_value)
+        if context_object == nil or context_object == ffi.NULL then return end
+        local ctx = ffi.cast(NotificationContextPtr, context_object)
+        if ctx == nil then return end
+
+        notification_lock()
+        if ctx.active == 0 then
+          notification_unlock()
+          return
+        end
+
+        local capacity = ctx.capacity
+        if capacity == 0 then capacity = MAX_NOTIFICATION_QUEUE end
+        local head = ctx.head
+        local tail = ctx.tail
+        local next_tail = notification_queue_advance(tail, capacity)
+        if next_tail == head then
+          head = notification_queue_advance(head, capacity)
+          ctx.head = head
+        end
+
+        local event = ctx.events[tail]
+        event.session = ffi.cast("uintptr_t", session_id)
+        event.type_len = copy_cstring(event.msg_type, msg_type, MAX_NOTIFICATION_TYPE_LEN)
+        event.value_len = copy_cstring(event.msg_value, msg_value, MAX_NOTIFICATION_VALUE_LEN)
+
+        ctx.tail = next_tail
+        notification_unlock()
+      end
+
+      notification_callback_c = ffi.cast("RimeNotificationHandler", bridge)
+    end
+    return notification_callback_c
+  end
+
+  local function drain_notification_entry(entry)
+    local ctx = entry.ctx
+    if ctx == nil then return end
+
+    if not entry.active then
+      notification_lock()
+      ctx.head = ctx.tail
+      notification_unlock()
+      cleanup_notification_entry(entry.id)
+      return
+    end
+
+    local capacity = ctx.capacity
+    if capacity == 0 then capacity = MAX_NOTIFICATION_QUEUE end
+
+    while true do
+      notification_lock()
+      local head = ctx.head
+      local tail = ctx.tail
+      if head == tail then
+        notification_unlock()
+        break
+      end
+      local event = ctx.events[head]
+      ctx.head = notification_queue_advance(head, capacity)
+      notification_unlock()
+
+      local session
+      if event.session ~= 0 then
+        local session_id = ffi.cast("RimeSessionId", event.session)
+        local ok, wrapped = pcall(RimeSession, session_id, { borrowed = true })
+        session = (ok and wrapped) and wrapped or session_id
+      else
+        session = 0
+      end
+      local msg_type_str = event.type_len > 0 and ffi.string(event.msg_type, event.type_len) or nil
+      local msg_value_str = event.value_len > 0 and ffi.string(event.msg_value, event.value_len) or nil
+
+      local ok, err = entry.invoker(entry, session, msg_type_str, msg_value_str)
+      if not ok then
+        local stderr = io.stderr
+        if stderr and stderr.write then
+          stderr:write("[rimeapi_ffi] notification handler error: " .. tostring(err) .. "\n")
+        end
+      end
+    end
+
+    if not entry.active then
+      cleanup_notification_entry(entry.id)
+    end
+  end
+
+  local function drain_notifications()
+    for _, entry in pairs(notification_entries) do
+      drain_notification_entry(entry)
+    end
+  end
   local obj = { _c = ensure_api(), }
   local mt = {
     __index = function(_, k)
@@ -2082,7 +2113,7 @@ function ToRimeLeversApi(custom_api)
 end
 
 if os.isdir == nil or type(os.isdir) ~= 'function' then
-  os.isdir = function(path)
+  os.isdir = function(path, cp)
     local bit = require("bit")
     if ffi.os == 'Windows' then
       ffi.cdef[[
@@ -2091,7 +2122,8 @@ if os.isdir == nil or type(os.isdir) ~= 'function' then
       ]]
       local INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
       local FILE_ATTRIBUTE_DIRECTORY = 0x10
-      local attr = ffi.C.GetFileAttributesA(path)
+      local real_path = to_acp_path(path, cp)
+      local attr = ffi.C.GetFileAttributesA(real_path)
       return attr ~= INVALID_FILE_ATTRIBUTES and bit.band(attr, FILE_ATTRIBUTE_DIRECTORY) ~= 0
     else
       ffi.cdef[[

@@ -55,13 +55,6 @@ local path_sep = package.config:sub(1,1) == '\\' and '\\' or '/'
 
 local function pack(...) return { n = select('#', ...), ... } end
 
-local function file_exists(path)
-  if type(path) ~= 'string' or path == '' then return false end
-  local f = io.open(path, 'r')
-  if f then f:close() return true end
-  return false
-end
-
 local function dirname(path)
   if type(path) ~= 'string' or path == '' then return nil end
   local dir = path:match('^(.*)[/\\][^/\\]+$')

@@ -292,9 +292,10 @@ function RimeSchemaList() end
 function RimeCandidateListIterator() end
 ---@return RimeTraits
 function RimeTraits() end
----@return nil
----@param path string
-function os.mkdir(path) end
+---@return boolean
+---@param path string path of directory
+---@param cp integer | nil codepage of path for windows, default utf-8
+function os.mkdir(path, cp) end
 ---@return RimeLeversApi
 ---@param custom_api RimeCustomApi | nil
 function RimeLeversApi(custom_api) end
@@ -319,3 +320,11 @@ function RimeCustomSettings() end
 function RimeSwitcherSettings() end
 ---@return RimeUserDictIterator | nil
 function RimeUserDictIterator() end
+---@return boolean
+---@param path string path of directory
+---@param cp integer | nil codepage for windows, default utf-8
+function os.isdir(path, cp) end
+---@return boolean
+---@param path string path string, file or directory
+---@param cp integer | nil codepage of path for windows, default utf-8
+function file_exists(path, cp) end

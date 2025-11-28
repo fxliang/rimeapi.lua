@@ -26,6 +26,7 @@ inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) { re
 #endif /* _WIN32 */
 
 using namespace std;
+namespace fs = std::filesystem;
 
 typedef RIME_FLAVORED(RimeApi) *(*RimeGetApi)(void);
 RimeApi* rime_api = nullptr;
@@ -2285,24 +2286,45 @@ static int os_trymkdir(lua_State* L) {
     lua_pushboolean(L, false);
     return 1;
   }
-  std::filesystem::path p(wpath);
+  fs::path p(wpath);
 #else
-  std::filesystem::path p(path);
+  fs::path p(path);
 #endif
   std::error_code ec;
-  bool created = std::filesystem::create_directories(p, ec);
+  bool created = fs::create_directories(p, ec);
   if (ec) lua_pushboolean(L, false);
   else lua_pushboolean(L, true);
   return 1;
 }
 
+static const fs::path get_path_from_lua(lua_State* L, int index) {
+  const char* path = luaL_checkstring(L, index);
+  if (!path)
+    return fs::path();
+#ifdef WIN32
+  unsigned int cp = (lua_gettop(L) > 1) ? (unsigned int)luaL_checkinteger(L, 2) : CP_UTF8;
+  int len = MultiByteToWideChar(cp, 0, path, -1, nullptr, 0);
+  if (len <= 0)
+    return fs::path();
+  std::wstring wpath(len, L'\0');
+  if(MultiByteToWideChar(cp, 0, path, -1, &wpath[0], len) == 0)
+    return fs::path();
+  return fs::path(wpath);
+#else
+  return fs::path(path);
+#endif
+}
+
+static int file_exists(lua_State* L) {
+  fs::path p = get_path_from_lua(L, 1);
+  bool ret = fs::exists(p);
+  lua_pushboolean(L, ret);
+  return 1;
+}
+
 static int os_isdir(lua_State* L) {
-  const char* path = luaL_checkstring(L, 1);
-  bool ret = false;
-  if (path) {
-    std::filesystem::path p(path);
-    ret = std::filesystem::is_directory(p);
-  }
+  auto p = get_path_from_lua(L, 1);
+  bool ret = fs::is_directory(p);
   lua_pushboolean(L, ret);
   return 1;
 }
@@ -2349,6 +2371,8 @@ static void register_rime_bindings(lua_State *L) {
 #endif
   lua_pushcfunction(L, (lua_CFunction)set_codepage);
   lua_setglobal(L, "set_console_codepage");
+  lua_pushcfunction(L, file_exists);
+  lua_setglobal(L, "file_exists");
 }
 
 #ifdef WIN32
