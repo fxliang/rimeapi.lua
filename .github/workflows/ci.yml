@@ -29,6 +29,8 @@ jobs:
           submodules: true
 
       - name: setup librime
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           pwsh ./get-rime.ps1 -use toy -tag latest
           cp -r lib/* .
@@ -203,6 +205,8 @@ jobs:
 
       - name: Copy Rime files
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           .\get-rime.ps1 -use toy -tag latest
 

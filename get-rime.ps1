@@ -36,6 +36,11 @@ if ($h -or $help -eq "--help") {
   # if `$api_pat is not original, don't touch this for security
   #`$global:authorization = '<your token>'
   # -----------------------------------------------------------------------------
+
+  Note:
+    - In GitHub Actions, this script will automatically read the repository token
+      from environment variables (GITHUB_TOKEN or GH_TOKEN) and add it to the
+      Authorization header for GitHub API to avoid rate limiting.
   "
   Write-Host $msg
   exit
@@ -110,6 +115,18 @@ if ($tag) {
 } else {
   $apiUrl = $api_pat + "latest"
 }
+
+# Auto use GitHub Actions token if available to avoid rate limit
+if (-not $authorization) {
+  if ($env:GITHUB_ACTIONS -eq 'true' -and $env:GITHUB_TOKEN) {
+    $authorization = $env:GITHUB_TOKEN
+  } elseif ($env:GH_TOKEN) {
+    $authorization = $env:GH_TOKEN
+  } elseif ($env:GITHUB_TOKEN) {
+    $authorization = $env:GITHUB_TOKEN
+  }
+}
+
 $webRequestParams = @{
   Uri = $apiUrl
   Headers = @{ Accept = "application/vnd.github.v3+json" }
