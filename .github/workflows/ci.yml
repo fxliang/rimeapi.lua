@@ -296,12 +296,12 @@ jobs:
 
       - name: Create latest release
         if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
-        uses: softprops/action-gh-release@v2
+        uses: marvinpinto/action-automatic-releases@latest
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: latest
+          automatic_release_tag: latest
           prerelease: true
-          name: "Latest Build"
+          title: "Latest Build"
           files: |
             ./artifacts/rimeapi.lua-macos-dist.zip
             ./artifacts/rimeapi.lua-winx64-dist.zip
