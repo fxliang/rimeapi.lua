@@ -27,6 +27,8 @@ To build the shared library, xmake is required. Follow these steps(or follow wor
 - `rimeapi.app.lua`: a lua/luajit script, work as a REPL when no extra args passed, or run test scripts when args passed
 - `rime_api_console.lua`: a lua script to work like `rime_api_console` of `librime`
 - `get-rime.ps1`: a powershell script tool for getting `librime` for windows/macos
+- `schema_tester.lua`: a lua script demo for testing rime schema
+- `schema_tester_config.lua`: a config file for `schema_tester.lua`
 
 ## Credites
 

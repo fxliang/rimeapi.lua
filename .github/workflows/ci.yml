@@ -28,11 +28,6 @@ jobs:
         with:
           submodules: true
 
-      - name: install powershell and 7zip
-        run: |
-          brew install --cask powershell
-          brew install p7zip
-
       - name: setup librime
         run: |
           pwsh ./get-rime.ps1 -use toy -tag latest
@@ -301,12 +296,12 @@ jobs:
 
       - name: Create latest release
         if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
-        uses: marvinpinto/action-automatic-releases@latest
+        uses: softprops/action-gh-release@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          automatic_release_tag: latest
+          tag_name: latest
           prerelease: true
-          title: "Nightly Build"
+          name: "Latest Build"
           files: |
             ./artifacts/rimeapi.lua-macos-dist.zip
             ./artifacts/rimeapi.lua-winx64-dist.zip
