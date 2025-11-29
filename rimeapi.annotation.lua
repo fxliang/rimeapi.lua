@@ -164,7 +164,7 @@
 ---@field set_option fun(self: self, session: RimeSession|integer, option_name: string, value: boolean): nil
 ---@field get_option fun(self: self, session: RimeSession|integer, option_name: string): boolean
 ---@field set_property fun(self: self, session: RimeSession|integer, property_name: string, value: string): nil
----@field get_property fun(self: self, session: RimeSession|integer, property_name: string, buffer_size: integer|nil): string
+---@field get_property fun(self: self, session: RimeSession|integer, property_name: string, buffer_size: integer|nil): string |nil
 ---@field get_schema_list fun(self: self, schema_list: RimeSchemaList): boolean
 ---@field free_schema_list fun(self: self, schema_list: RimeSchemaList): nil
 ---@field get_current_schema fun(self: self, session: RimeSession|integer, buffer_size: integer): string|nil

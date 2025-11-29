@@ -1629,21 +1629,24 @@ namespace RimeApiReg {
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, const char*, char*, size_t) {
       // get_property(session_id, prop, buffer, buffer_size)
-      if (lua_gettop(L) != 4) {
-        luaL_error(L, "Expected 3 arguments for \"%s\", (%s, %s, %s) is required", func_name, "RimeSessionId", "string", "buffer_size(integer)");
+      if (lua_gettop(L) < 3) {
+        luaL_error(L, "Expected at least 2 arguments for \"%s\", (%s, %s) is required, or with buffer_size", func_name, "RimeSessionId", "string");
         return 0;
       }
       RimeSessionId session_id = RimeSession_todata(L, 2);
       const char* prop = luaL_checkstring(L, 3);
-      size_t buffer_size = luaL_checkinteger(L, 4);
+      size_t buffer_size = 256;
+      if (lua_gettop(L) > 3)
+        buffer_size = luaL_checkinteger(L, 4);
       std::unique_ptr<char[]> buffer = std::make_unique<char[]>(buffer_size);
       Bool result = func_ptr(session_id, prop, buffer.get(), buffer_size);
       if (result) {
-        lua_pushboolean(L, true);
+        //lua_pushboolean(L, true);
         lua_pushstring(L, buffer.get());
-        return 2;
+        return 1;
       } else {
-        lua_pushboolean(L, false);
+        //lua_pushboolean(L, false);
+        lua_pushnil(L);
         return 1;
       }
     } else if constexpr SIGNATURE_CHECK(void, char*, size_t) {

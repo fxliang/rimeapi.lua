@@ -1685,9 +1685,10 @@ function RimeApi()
         end
       elseif k == 'get_property' then
         return function(_, session_id, prop, buffer_size)
+          buffer_size = buffer_size or 256
           local buf = ffi.new("char[?]", buffer_size)
           local res = obj._c.get_property(tosessionid(session_id), tostring(prop), buf, tonumber(buffer_size))
-          return res ~= 0, safestr(buf) or ''
+          return res ~= 0 and safestr(buf) or nil
         end
       elseif k == 'config_open' then
         return function(_, config_id, config_obj)
