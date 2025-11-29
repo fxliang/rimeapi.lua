@@ -21,7 +21,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        maker: [cmake, xmake]
+        maker: [xmake]
     steps:
 
       - uses: actions/checkout@v4
@@ -99,7 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        maker: [cmake, xmake]
+        maker: [xmake]
     steps:
 
       - uses: actions/checkout@v4
@@ -191,7 +191,7 @@ jobs:
     strategy:
       matrix:
         arch: [x64, x86]
-        maker: [cmake, xmake]
+        maker: [xmake]
     steps:
       - uses: actions/checkout@v4
         with:
