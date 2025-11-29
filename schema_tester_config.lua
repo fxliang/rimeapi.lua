@@ -44,12 +44,10 @@ return {
         { send = 'ceshi', assert = "#cand == 0" }
       },
     },
-    --[[
     failed = {
       tests = {
         { send = 'shibai', assert = "cand[1].text == '失败测试'"}
       }
     },
-    --]]
   },
 }
