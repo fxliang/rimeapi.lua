@@ -2332,6 +2332,13 @@ static int os_isdir(lua_State* L) {
   return 1;
 }
 
+static int to_acp_path(lua_State* L) {
+  fs::path p = get_path_from_lua(L, 1);
+  const auto str = p.string();
+  lua_pushstring(L, str.c_str());
+  return 1;
+}
+
 static void register_rime_bindings(lua_State *L) {
   EXPORT(RimeTraitsReg, L);
   EXPORT(RimeCompositionReg, L);
@@ -2372,10 +2379,13 @@ static void register_rime_bindings(lua_State *L) {
 #else
   const auto set_codepage = +[](lua_State* L) -> int { lua_pushinteger(L, 0); return 1; };
 #endif
-  lua_pushcfunction(L, (lua_CFunction)set_codepage);
-  lua_setglobal(L, "set_console_codepage");
-  lua_pushcfunction(L, file_exists);
-  lua_setglobal(L, "file_exists");
+#define REGISTER_GLOBAL_FUNC(name, func) \
+  lua_pushcfunction(L, func);          \
+  lua_setglobal(L, name);
+  REGISTER_GLOBAL_FUNC("set_console_codepage", set_codepage);
+  REGISTER_GLOBAL_FUNC("file_exists", file_exists);
+  REGISTER_GLOBAL_FUNC("to_acp_path", to_acp_path);
+#undef REGISTER_GLOBAL_FUNC
 }
 
 #ifdef WIN32

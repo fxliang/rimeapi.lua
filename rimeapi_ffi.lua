@@ -302,7 +302,7 @@ ffi.cdef[[
   RimeApi* rime_get_api(void);
 ]]
 
-local function to_acp_path(path, cp)
+function to_acp_path(path, cp)
   local real_path = path
   if ffi and ffi.os == "Windows" then
     ffi.cdef[[

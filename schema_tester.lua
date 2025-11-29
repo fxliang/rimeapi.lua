@@ -31,6 +31,13 @@ local script_cpath = script_path() .. div .. '?.dll' .. ';' .. script_path() .. 
 -- you must keep the rime.dll, librime.dylib or librime.so in current search path or pwd
 package.cpath = package.cpath .. ';' .. script_cpath
 package.path = package.path .. ';' .. script_path() .. div .. '?.lua'
+local rmdir = function(path)
+  if package.config:sub(1,1) == '\\' then
+    os.execute('rd /s /q "' .. path .. '"')
+  else
+    os.execute('rm -rf "' .. path .. '"')
+  end
+end
 
 -------------------------------------------------------------------------------
 local config = require('schema_tester_config')
@@ -43,6 +50,15 @@ local rime_api = RimeApi()
 local traits = RimeTraits()
 local session = nil
 
+-------------------------------------------------------------------------------
+local function init_session()
+  rime_api:initialize(traits)
+  if rime_api:start_maintenance(true) then rime_api:join_maintenance_thread() end
+  session = rime_api:create_session()
+  assert(session ~= nil)
+  assert(rime_api:select_schema(session, schema_id) == true,
+    "Failed to select schema: " .. tostring(schema_id))
+end
 -------------------------------------------------------------------------------
 local function init()
   traits.app_name = "schema_tester"
@@ -66,18 +82,15 @@ local function init()
     assert(os.mkdir(traits.log_dir) == true)
   end
   rime_api:setup(traits)
-  rime_api:initialize(traits)
-  if rime_api:start_maintenance(true) then rime_api:join_maintenance_thread() end
-  session = rime_api:create_session()
-  assert(session ~= nil)
-  assert(rime_api:select_schema(session, schema_id) == true,
-    "Failed to select schema: " .. tostring(schema_id))
+  init_session()
 end
 
 -------------------------------------------------------------------------------
 local function finalize()
+  if not session then return end
   rime_api:cleanup_all_sessions()
   rime_api:finalize()
+  session = nil
 end
 
 -------------------------------------------------------------------------------
@@ -191,18 +204,21 @@ local function test_func()
       assert(levers:save_settings(settings) == true, 'Failed to save settings')
     end
     levers:custom_settings_destroy(settings)
-    init()
+    init_session()
   end
   -- remove patch, and update workspace
   local remove_patch = function(patch_lines)
     if not patch_lines then return end
     local filepath = traits.user_data_dir .. '/' .. schema_id .. '.custom.yaml'
+    if not file_exists(filepath) then return end
+    finalize()
     os.remove(filepath)
-    init()
+    init_session()
   end
 
   for k_deploy, v_deploy in pairs(config.deploy) do
     print("---------------------------------------------------\nTesting:", k_deploy)
+    if not session then init_session() end
     -- deploy patch if any
     deploy_patch(v_deploy['patch'])
     -- set options
@@ -217,6 +233,12 @@ local function test_func()
     reset_properties(v_deploy['properties'])
     -- remove patch if any
     remove_patch(v_deploy['patch'])
+    -- clean userdb
+    local userdb = traits.user_data_dir .. div .. schema_id .. '.userdb'
+    if file_exists(userdb) then
+      finalize()
+      rmdir(to_acp_path(userdb))
+    end
   end
   finalize()
 end
