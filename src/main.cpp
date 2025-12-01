@@ -2339,6 +2339,16 @@ static int to_acp_path(lua_State* L) {
   return 1;
 }
 
+int set_console_color(lua_State* L) {
+#ifdef WIN32
+  unsigned short attributes = (unsigned short)luaL_checkinteger(L, 1);
+  HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+  if (hConsole)
+    SetConsoleTextAttribute(hConsole, attributes);
+#endif
+  return 0;
+}
+
 static void register_rime_bindings(lua_State *L) {
   EXPORT(RimeTraitsReg, L);
   EXPORT(RimeCompositionReg, L);
@@ -2385,6 +2395,7 @@ static void register_rime_bindings(lua_State *L) {
   REGISTER_GLOBAL_FUNC("set_console_codepage", set_codepage);
   REGISTER_GLOBAL_FUNC("file_exists", file_exists);
   REGISTER_GLOBAL_FUNC("to_acp_path", to_acp_path);
+  REGISTER_GLOBAL_FUNC("set_console_color", set_console_color);
 #undef REGISTER_GLOBAL_FUNC
 }
 

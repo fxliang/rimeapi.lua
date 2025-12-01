@@ -292,17 +292,18 @@ local function test_func()
     local remove_opts = function(env, opts) append_opts(env, opts, false) end
     local function colormsg(msg, color)
       if div == '\\' then
+        local color_code = { red = 0x04, green = 0x02, blue = 0x01,
+          yellow = 0x06, magenta = 0x05, cyan = 0x03, white = 0x07,
+        }
+        set_console_color(color_code[color] or 0x07)
         io.write(msg)
+        set_console_color(0x07)
         return
       end
       local default_tty_text_color = '\27[0m'
       local color_code = {
-        red = '\27[31m',
-        green = '\27[32m',
-        yellow = '\27[33m',
-        blue = '\27[34m',
-        magenta = '\27[35m',
-        cyan = '\27[36m',
+        red = '\27[31m', green = '\27[32m', yellow = '\27[33m',
+        blue = '\27[34m', magenta = '\27[35m', cyan = '\27[36m',
         white = '\27[37m',
       }
       local color_prefix = color_code[color] or default_tty_text_color
@@ -412,4 +413,6 @@ local function test_func()
   finalize()
 end
 -------------------------------------------------------------------------------
+local cp = set_console_codepage(65001)
 test_func()
+set_console_codepage(cp)

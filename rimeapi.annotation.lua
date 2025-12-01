@@ -328,3 +328,7 @@ function os.isdir(path, cp) end
 ---@param path string path string, file or directory
 ---@param cp integer | nil codepage of path for windows, default utf-8
 function file_exists(path, cp) end
+--- not for non-windows platform
+---@return nil
+---@param color integer color code of windows console, see https://learn.microsoft.com/en-us/windows/console/console-screen-buffers#character-attributes
+function set_console_color(color) end

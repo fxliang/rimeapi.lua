@@ -2141,3 +2141,14 @@ if os.isdir == nil or type(os.isdir) ~= 'function' then
     end
   end
 end
+
+if ffi.os == 'Windows' then
+  ffi.cdef[[
+    void* GetStdHandle(unsigned long nStdHandle);
+    int SetConsoleTextAttribute(void* hConsole, unsigned short wAttributes);
+  ]]
+  function set_console_color(color)
+    local handle = ffi.C.GetStdHandle(-11) -- STD_OUTPUT_HANDLE
+    ffi.C.SetConsoleTextAttribute(handle, color)
+  end
+end
