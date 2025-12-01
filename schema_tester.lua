@@ -218,34 +218,24 @@ end
 -------------------------------------------------------------------------------
 local function test_func()
   init()
+  assert(session ~= nil, "Session is not initialized")
   local ctx = RimeContext()
   local status = RimeStatus()
   local commit = RimeCommit()
-  -- set options
-  local set_options = function(options, set)
-    if not options then return end
-    if set == nil then set = true end
-    for k_opt, v_opt in pairs(options) do
-      local value = set and v_opt or false
-      rime_api:set_option(session, k_opt, value)
-      assert(rime_api:get_option(session, k_opt) == value, 'Failed to set option: ' .. k_opt)
+
+  local set_env = function (values, kind)
+    if not values then return nil end
+    local ret = {}
+    local setter = (kind == 'option') and rime_api.set_option or rime_api.set_property
+    local getter = (kind == 'option') and rime_api.get_option or rime_api.get_property
+    for k, v in pairs(values) do
+      ret[k] = getter(rime_api, session, k)
+      setter(rime_api, session, k, v)
+      local new_value = getter(rime_api, session, k)
+      assert(new_value == v, 'Failed to set ' .. kind .. ': ' .. k)
     end
+    return ret
   end
-  -- reset options
-  local reset_options = function(options) set_options(options, false) end
-  -- set properties
-  local set_properties = function(properties, set)
-    if not properties then return end
-    if set == nil then set = true end
-    for prop_name, prop in pairs(properties) do
-      local value = set and prop or nil
-      rime_api:set_property(session, prop_name, value or '')
-      local prop_value = rime_api:get_property(session, prop_name, 256)
-      assert(prop_value == value, 'Failed to set property: ' .. prop_name)
-    end
-  end
-  -- reset properties
-  local reset_properties = function(properties) set_properties(properties, false) end
 
   local run_tests = function(tests, title)
     if not tests then return end
@@ -270,7 +260,7 @@ local function test_func()
       if not chunk then return false, nil end
       return pcall(chunk)
     end
-    local set_env = function(env, keys, kind)
+    local sync_env = function(env, keys, kind)
       if type(keys) ~= 'table' or type(kind) ~= 'string' or session == nil then return end
       local getter = (kind == 'option') and rime_api.get_option or rime_api.get_property
       for _, key in pairs(keys) do
@@ -313,8 +303,8 @@ local function test_func()
       if v_test['assert'] then
         -- Evaluate the assertion expression in a sandbox that exposes local values
         local env = setmetatable({ cand = cand, ctx = ctx, status = status, commit = commit }, { __index = _G })
-        set_env(env, v_test['properties'], 'property')
-        set_env(env, v_test['options'], 'option')
+        sync_env(env, v_test['properties'], 'property')
+        sync_env(env, v_test['options'], 'option')
         local _, result = load_chunk(v_test['assert'], env)
         local s1, s2, s3 = '  ' .. v_test['send'], '  ' .. v_test['assert'],
           result and '  passed\n' or '  failed\n'
@@ -370,20 +360,17 @@ local function test_func()
   end
 
   for k_deploy, v_deploy in pairs(config.deploy) do
-    --print("---------------------------------------------------\nTesting:", k_deploy)
     if not session then init_session() end
     -- deploy patch if any
     deploy_patch(v_deploy['patch'])
-    -- set options
-    set_options(v_deploy['options'])
-    -- set properties
-    set_properties(v_deploy['properties'])
+    -- set options and properties
+    local opts = set_env(v_deploy['options'], 'option')
+    local props = set_env(v_deploy['properties'], 'property')
     -- run tests
     run_tests(v_deploy['tests'], k_deploy)
-    -- recover options to default
-    reset_options(v_deploy['options'])
-    -- recover properties to default
-    reset_properties(v_deploy['properties'])
+    -- recover options and properties to previous values
+    set_env(opts, 'option')
+    set_env(props, 'property')
     -- remove patch if any
     remove_patch(v_deploy['patch'])
     -- clean userdb
