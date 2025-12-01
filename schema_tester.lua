@@ -44,6 +44,47 @@ local config = require('schema_tester_config')
 assert(config ~= nil, "Failed to load schema_tester_config.lua")
 local schema_id = config.schema_id or 'luna_pinyin'
 if not RimeApi then require('rimeapi') end
+local unpack = table.unpack or unpack
+local function pack(...)
+  return { n = select('#', ...), ... }
+end
+
+local function call_with_env(fn, env, ...)
+  if type(fn) ~= 'function' then return fn(...) end
+  local restore
+  if type(setfenv) == 'function' then
+    local old_env = getfenv(fn)
+    setfenv(fn, env)
+    restore = function() setfenv(fn, old_env) end
+  elseif type(debug) == 'table' and debug.getupvalue then
+    local i = 1
+    while true do
+      local name, value = debug.getupvalue(fn, i)
+      if not name then break end
+      if name == '_ENV' then
+        debug.setupvalue(fn, i, env)
+        restore = function() debug.setupvalue(fn, i, value) end
+        break
+      end
+      i = i + 1
+    end
+  end
+  local results = pack(pcall(fn, ...))
+  if restore then restore() end
+  if not results[1] then error(results[2]) end
+  return unpack(results, 2, results.n)
+end
+
+local function inject_config_functions(env)
+  if type(config) ~= 'table' then return end
+  for name, value in pairs(config) do
+    if type(value) == 'function' then
+      env[name] = function(...)
+        return call_with_env(value, env, ...)
+      end
+    end
+  end
+end
 
 -------------------------------------------------------------------------------
 local rime_api = RimeApi()
@@ -256,36 +297,51 @@ local function test_func()
     local color_prefix = color_code[color] or default_tty_text_color
     io.write(color_prefix .. msg .. default_tty_text_color)
   end
+
+  -- send key sequence and return candidates, update ctx, status, commit
+  local send = function(id, keys)
+    assert(rime_api:simulate_key_sequence(id, keys), 'Failed to send key sequence: ' .. keys)
+    assert(rime_api:get_context(session, ctx), 'Failed to get context')
+    assert(rime_api:get_status(session, status) ~= nil, "Failed to get status")
+    assert(rime_api:get_commit(session, commit) ~= nil, "Failed to get commit")
+    return ctx.menu.candidates
+  end
+  local load_chunk = function(expr, env)
+    local chunk, load_err
+    if _VERSION == 'Lua 5.1' or type(setfenv) == 'function' then
+      chunk, load_err = load('return ' .. expr, '=(assert)')
+      assert(chunk, 'Failed to compile assert: ' .. tostring(load_err))
+      setfenv(chunk, env)
+    else
+      chunk, load_err = load('return ' .. expr, '=(assert)', 't', env)
+      assert(chunk, 'Failed to compile assert: ' .. tostring(load_err))
+    end
+    if not chunk then return false, nil end
+    return pcall(chunk)
+  end
+  local run_chunk = function(expr, env)
+    local chunk, load_err
+    if _VERSION == 'Lua 5.1' or type(setfenv) == 'function' then
+      chunk, load_err = load(expr, '=(assert)')
+      assert(chunk, 'Failed to compile run: ' .. tostring(load_err))
+      setfenv(chunk, env)
+    else
+      chunk, load_err = load(expr, '=(assert)', 'bt', env)
+      assert(chunk, 'Failed to compile run: ' .. tostring(load_err))
+    end
+    if not chunk then return false end
+    return pcall(chunk)
+  end
+  local sync_env = function(env, keys, kind)
+    if type(keys) ~= 'table' or type(kind) ~= 'string' or session == nil then return end
+    local getter = (kind == 'option') and rime_api.get_option or rime_api.get_property
+    for _, key in pairs(keys) do
+      if type(key) == 'string' then env[key] = getter(rime_api, session, key) end
+    end
+  end
+
   local run_tests = function(tests)
     if not tests then return end
-    -- send key sequence and return candidates, update ctx, status, commit
-    local send = function(id, keys)
-      assert(rime_api:simulate_key_sequence(id, keys), 'Failed to send key sequence: ' .. keys)
-      assert(rime_api:get_context(session, ctx), 'Failed to get context')
-      assert(rime_api:get_status(session, status) ~= nil, "Failed to get status")
-      assert(rime_api:get_commit(session, commit) ~= nil, "Failed to get commit")
-      return ctx.menu.candidates
-    end
-    local load_chunk = function(expr, env)
-      local chunk, load_err
-      if _VERSION == 'Lua 5.1' or type(setfenv) == 'function' then
-        chunk, load_err = load('return ' .. expr, '=(assert)')
-        assert(chunk, 'Failed to compile assert: ' .. tostring(load_err))
-        setfenv(chunk, env)
-      else
-        chunk, load_err = load('return ' .. expr, '=(assert)', 't', env)
-        assert(chunk, 'Failed to compile assert: ' .. tostring(load_err))
-      end
-      if not chunk then return false, nil end
-      return pcall(chunk)
-    end
-    local sync_env = function(env, keys, kind)
-      if type(keys) ~= 'table' or type(kind) ~= 'string' or session == nil then return end
-      local getter = (kind == 'option') and rime_api.get_option or rime_api.get_property
-      for _, key in pairs(keys) do
-        if type(key) == 'string' then env[key] = getter(rime_api, session, key) end
-      end
-    end
     -- run each test
     local col1, col2, col3 = {}, {}, {}
     local w1, w2, w3 = 0, 0, 0
@@ -306,6 +362,7 @@ local function test_func()
         local env = setmetatable({ cand = cand, ctx = ctx, status = status, commit = commit }, { __index = _G })
         sync_env(env, v_test['properties'], 'property')
         sync_env(env, v_test['options'], 'option')
+        inject_config_functions(env)
         local _, result = load_chunk(v_test['assert'], env)
         local s1, s2, s3 = '  ' .. v_test['send'], '  ' .. v_test['assert'],
           result and '  passed\n' or '  failed\n'
@@ -315,6 +372,28 @@ local function test_func()
       rime_api:clear_composition(session)
     end
     return { col1 = col1, col2 = col2, col3 = col3, w1 = w1, w2 = w2, w3 = w3, with_failures = with_failures }
+  end
+  local dry_run = function(tests, k_deploy)
+    if not tests then return end
+    local has_run = false
+    for _, v_test in ipairs(tests) do
+      if v_test['run'] then has_run = true break end
+    end
+    if not has_run then return end
+    colormsg('  Running deployment dry run: ' .. k_deploy .. '...\n', 'cyan')
+    for _, v_test in ipairs(tests) do
+      local cand = send(session, v_test['send'])
+      if v_test['run'] then
+        local env = setmetatable({ cand = cand, ctx = ctx, status = status, commit = commit }, { __index = _G })
+        sync_env(env, v_test['properties'], 'property')
+        sync_env(env, v_test['options'], 'option')
+        inject_config_functions(env)
+        colormsg('  send: \"' .. v_test['send'] .. '\", run: '.. tostring(v_test['run']))
+        run_chunk(v_test['run'], env)
+      end
+      rime_api:clear_composition(session)
+    end
+    colormsg('  done.\n', 'green')
   end
   -- deploy patch
   local function deploy_patch(patch_lines)
@@ -349,7 +428,7 @@ local function test_func()
   local results = {}
   local w1, w2, w3 = 0, 0, 0
   for k_deploy, v_deploy in pairs(config.deploy) do
-    colormsg('  Running deployment: ' .. k_deploy .. '...', 'cyan')
+    colormsg('  Running deployment assertion: ' .. k_deploy .. '...', 'cyan')
     if not session then init_session() end
     -- deploy patch if any
     deploy_patch(v_deploy['patch'])
@@ -359,10 +438,15 @@ local function test_func()
     -- run tests
     local ret = run_tests(v_deploy['tests'])
     assert(ret, 'Failed to run tests for deployment: ' .. k_deploy)
+    local done_color = ret.with_failures and 'red' or 'green'
+    local done_msg = ret.with_failures and ' done (with failures).\n' or ' done.\n'
+    colormsg(done_msg, done_color)
     w1 = math.max(w1, ret.w1)
     w2 = math.max(w2, ret.w2)
     w3 = math.max(w3, ret.w3)
     table.insert(results, { title = k_deploy, result = ret })
+    -- dry run if v_deploy['tests'] has run field
+    dry_run(v_deploy['tests'], k_deploy)
     -- recover options and properties to previous values
     set_env(opts, 'option')
     set_env(props, 'property')
@@ -374,11 +458,9 @@ local function test_func()
       finalize()
       rmdir(to_acp_path(userdb))
     end
-    local done_color = ret.with_failures and 'red' or 'green'
-    local done_msg = ret.with_failures and ' done (with failures).\n' or ' done.\n'
-    colormsg(done_msg, done_color)
   end
-  print('\nTest Details:\n')
+  print(string.rep('-', w1 + w2 + w3))
+  print('Assertion Test Details:')
   for _, v in ipairs(results) do
     for i = 1, #v.result.col1 do
       local is_header = (i == 1)

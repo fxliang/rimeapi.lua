@@ -1,10 +1,19 @@
 return {
+  -- a demo function to print candidates and preedit, for run
+  print_composition = function()
+    print('\n  preedit: ' .. ctx.composition.preedit)
+    for k, v in pairs(cand) do print('  ' .. k, v.text) end
+  end,
+  -- a demo function to be used for assertion
+  ret_in_assert = function() return cand[1].text == '啊' end,
   schema_id = 'luna_pinyin',
   user_data_dir = 'schema_test_user_data_dir',
   shared_data_dir = 'shared',
   deploy = {
     default = {
       tests = {
+        { send = 'zhishiyunxingyixiakankanjieguo', run = [[print_composition()]] },
+        { send = 'a', assert = "ret_in_assert()" },
         { send = 'a', assert = "cand[1].text == '啊'" },
         { send = 'b', assert = "cand[1].text == '不'" },
         { send = 'wei', assert = "cand[1].text == '爲'" },
@@ -18,6 +27,7 @@ return {
         --[[
           { 
             send = 'key_sequence_to_send',
+            run = 'lua_expression_to_run',        -- lua expression string to be executed, ctx, status, commit, cand are exposed
             assert = 'lua_expression_to_assert',  -- lua expression string to be evaluated, ctx, status, commit, cand are exposed
                                                   -- property names and option names in the following tables are also exposed
             properties = { 'prop1', 'prop2' },    -- table_of_props_to_expose
