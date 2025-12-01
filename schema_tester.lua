@@ -267,29 +267,16 @@ local function test_func()
         chunk, load_err = load('return ' .. expr, '=(assert)', 't', env)
         assert(chunk, 'Failed to compile assert: ' .. tostring(load_err))
       end
-      return chunk
+      if not chunk then return false, nil end
+      return pcall(chunk)
     end
-    -- apend option values to env
-    local append_opts = function(env, opts)
-      if type(opts) ~= 'table' then return end
-      for _, opt in pairs(opts) do
-        if type(opt) == 'string' then env[opt] = rime_api:get_option(session, opt) end
+    local set_env = function(env, keys, kind)
+      if type(keys) ~= 'table' or type(kind) ~= 'string' or session == nil then return end
+      local getter = (kind == 'option') and rime_api.get_option or rime_api.get_property
+      for _, key in pairs(keys) do
+        if type(key) == 'string' then env[key] = getter(rime_api, session, key) end
       end
     end
-    -- append property values to env
-    local append_properties = function(env, properties, append)
-      if type(properties) ~= 'table' then return end
-      if not append then append = true end
-      for _, prop in pairs(properties) do
-        if type(prop) == 'string' then
-          env[prop] = append and rime_api:get_property(session, prop) or nil
-        end
-      end
-    end
-    -- remove property values from env
-    local remove_properties = function(env, properties) append_properties(env, properties, false) end
-    -- remove option values from env
-    local remove_opts = function(env, opts) append_opts(env, opts, false) end
     local function colormsg(msg, color)
       if div == '\\' then
         local color_code = { red = 0x04, green = 0x02, blue = 0x01,
@@ -326,16 +313,12 @@ local function test_func()
       if v_test['assert'] then
         -- Evaluate the assertion expression in a sandbox that exposes local values
         local env = setmetatable({ cand = cand, ctx = ctx, status = status, commit = commit }, { __index = _G })
-        append_opts(env, v_test['options'])
-        append_properties(env, v_test['properties'])
-        local chunk = load_chunk(v_test['assert'], env)
-        local _, result = pcall(chunk)
-        local s1 = '  ' .. v_test['send']
-        local s2 = '  ' .. v_test['assert']
-        local s3 = result and '  passed\n' or '  failed\n'
+        set_env(env, v_test['properties'], 'property')
+        set_env(env, v_test['options'], 'option')
+        local _, result = load_chunk(v_test['assert'], env)
+        local s1, s2, s3 = '  ' .. v_test['send'], '  ' .. v_test['assert'],
+          result and '  passed\n' or '  failed\n'
         add_row(s1, s2, s3)
-        remove_properties(env, v_test['properties'])
-        remove_opts(env, v_test['options'])
       end
       rime_api:clear_composition(session)
     end
