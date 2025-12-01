@@ -418,6 +418,8 @@ if ffi.os == "Linux" or ffi.os == "OSX" then
   local RTDL_DEEPBIND = ( is_termux or ffi.os == 'OSX' ) and 0 or 0x8
   local libname = ffi.os == 'OSX' and "librime.dylib" or "librime.so"
   local handle = ffi.C.dlopen(libname, bor(RTLD_NOW, RTDL_DEEPBIND))
+  if handle == nil then handle = ffi.C.dlopen("./" .. libname, bor(RTLD_NOW, RTDL_DEEPBIND)) end
+  assert(handle ~= nil, "failed to load " .. libname)
   local sym = ffi.C.dlsym(handle, "rime_get_api")
   if sym == nil then
     local err = ffi.C.dlerror()
@@ -446,7 +448,10 @@ else
     return orig_cp
   end
   local librime = ffi.C.LoadLibraryA('rime.dll')
-  if not librime then error('failed to load librime') end
+  if not librime then librime = ffi.C.LoadLibraryA('./rime.dll') end
+  if not librime then librime = ffi.C.LoadLibraryA('librime.dll') end
+  if not librime then librime = ffi.C.LoadLibraryA('./librime.dll') end
+  assert(librime, 'failed to load librime')
   rime_get_api_func = ffi.cast("RimeApi* (*)()", ffi.C.GetProcAddress(librime, "rime_get_api"))
   api = rime_get_api_func()
   if not api then error('failed to get rime api') end

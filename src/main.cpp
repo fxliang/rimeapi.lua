@@ -2401,12 +2401,20 @@ static void register_rime_bindings(lua_State *L) {
 
 #ifdef WIN32
 #define FREE_RIME() do { if (librime) { FreeLibrary(librime); librime = nullptr; } } while(0)
-#define LOAD_RIME_LIBRARY() (LoadLibraryA("rime.dll") ? LoadLibraryA("rime.dll") : LoadLibraryA("librime.dll"))
+#define DLO(x) LoadLibraryA(x)
+#define DLO2(x, y) (DLO(x) ? DLO(x) : DLO(y))
+#define LOAD_RIME_LIBRARY() (DLO2("rime.dll", "./rime.dll") ? DLO2("rime.dll", "./rime.dll") : DLO2("librime.dll", "./librime.dll"))
 #define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(GetProcAddress(handle, "rime_get_api"))
 #define CLEAR_RIME_ERROR() ((void)0)
 #else
+#if defined(__APPLE__) || defined(__MACH__)
+#define LIBNAME "librime.dylib"
+#else
+#define LIBNAME "librime.so"
+#endif
 #define FREE_RIME() do { if (librime) { dlclose(librime); librime = nullptr; } } while(0)
-#define LOAD_RIME_LIBRARY() (dlopen("librime.so", RTLD_LAZY | RTLD_LOCAL | RTLD_DEEPBIND) ? dlopen("librime.so", RTLD_LAZY | RTLD_LOCAL | RTLD_DEEPBIND) : dlopen("librime.dylib", RTLD_LAZY | RTLD_LOCAL))
+#define DLO(x) dlopen(x, RTLD_LAZY | RTLD_LOCAL| RTLD_DEEPBIND)
+#define LOAD_RIME_LIBRARY() (DLO(LIBNAME) ? DLO(LIBNAME) : DLO("./" LIBNAME))
 #define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(dlsym(handle, "rime_get_api"))
 #define CLEAR_RIME_ERROR() ((void)dlerror())
 #endif
