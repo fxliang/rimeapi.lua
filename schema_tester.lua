@@ -237,7 +237,26 @@ local function test_func()
     return ret
   end
 
-  local run_tests = function(tests, title)
+  local function colormsg(msg, color)
+    if div == '\\' then
+      local color_code = { red = 0x04, green = 0x02, blue = 0x01,
+        yellow = 0x06, magenta = 0x05, cyan = 0x03, white = 0x07,
+      }
+      set_console_color(color_code[color] or 0x07)
+      io.write(msg)
+      set_console_color(0x07)
+      return
+    end
+    local default_tty_text_color = '\27[0m'
+    local color_code = {
+      red = '\27[31m', green = '\27[32m', yellow = '\27[33m',
+      blue = '\27[34m', magenta = '\27[35m', cyan = '\27[36m',
+      white = '\27[37m',
+    }
+    local color_prefix = color_code[color] or default_tty_text_color
+    io.write(color_prefix .. msg .. default_tty_text_color)
+  end
+  local run_tests = function(tests)
     if not tests then return end
     -- send key sequence and return candidates, update ctx, status, commit
     local send = function(id, keys)
@@ -267,25 +286,6 @@ local function test_func()
         if type(key) == 'string' then env[key] = getter(rime_api, session, key) end
       end
     end
-    local function colormsg(msg, color)
-      if div == '\\' then
-        local color_code = { red = 0x04, green = 0x02, blue = 0x01,
-          yellow = 0x06, magenta = 0x05, cyan = 0x03, white = 0x07,
-        }
-        set_console_color(color_code[color] or 0x07)
-        io.write(msg)
-        set_console_color(0x07)
-        return
-      end
-      local default_tty_text_color = '\27[0m'
-      local color_code = {
-        red = '\27[31m', green = '\27[32m', yellow = '\27[33m',
-        blue = '\27[34m', magenta = '\27[35m', cyan = '\27[36m',
-        white = '\27[37m',
-      }
-      local color_prefix = color_code[color] or default_tty_text_color
-      io.write(color_prefix .. msg .. default_tty_text_color)
-    end
     -- run each test
     local col1, col2, col3 = {}, {}, {}
     local w1, w2, w3 = 0, 0, 0
@@ -298,6 +298,7 @@ local function test_func()
       table.insert(col3, s3)
     end
     add_row('  send', '  assert', '  result\n')
+    local with_failures = false
     for _, v_test in ipairs(tests) do
       local cand = send(session, v_test['send'])
       if v_test['assert'] then
@@ -308,26 +309,12 @@ local function test_func()
         local _, result = load_chunk(v_test['assert'], env)
         local s1, s2, s3 = '  ' .. v_test['send'], '  ' .. v_test['assert'],
           result and '  passed\n' or '  failed\n'
+        with_failures = with_failures or (not result)
         add_row(s1, s2, s3)
       end
       rime_api:clear_composition(session)
     end
-    for i = 1, #col1 do
-      local is_header = (i == 1)
-      if is_header then
-        local header = (title or 'default')
-        local padding = math.floor((w1 + w2 + w3 - eaw_display_width(header)) / 2)
-        local ext = (w1 + w2 + w3 - eaw_display_width(header)) % 2
-        colormsg(string.rep('-', padding) .. header .. string.rep('-', padding + ext) .. '\n', 'yellow')
-      end
-      local row_color1 = is_header and 'yellow' or 'blue'
-      local row_color2 = is_header and 'yellow' or 'magenta'
-      local result_color = is_header and 'yellow' or (col3[i]:find('passed') and 'green' or 'red')
-      colormsg(col1[i] .. string.rep(' ', w1 - eaw_display_width(col1[i])) , row_color1)
-      colormsg(col2[i] .. string.rep(' ', w2 - eaw_display_width(col2[i])) , row_color2)
-      colormsg(col3[i] .. string.rep(' ', w3 - eaw_display_width(col3[i])) , result_color)
-      if is_header then colormsg(string.rep('-', w1 + w2 + w3) .. '\n', 'yellow') end
-    end
+    return { col1 = col1, col2 = col2, col3 = col3, w1 = w1, w2 = w2, w3 = w3, with_failures = with_failures }
   end
   -- deploy patch
   local function deploy_patch(patch_lines)
@@ -359,7 +346,10 @@ local function test_func()
     init_session()
   end
 
+  local results = {}
+  local w1, w2, w3 = 0, 0, 0
   for k_deploy, v_deploy in pairs(config.deploy) do
+    colormsg('  Running deployment: ' .. k_deploy .. '...', 'cyan')
     if not session then init_session() end
     -- deploy patch if any
     deploy_patch(v_deploy['patch'])
@@ -367,7 +357,12 @@ local function test_func()
     local opts = set_env(v_deploy['options'], 'option')
     local props = set_env(v_deploy['properties'], 'property')
     -- run tests
-    run_tests(v_deploy['tests'], k_deploy)
+    local ret = run_tests(v_deploy['tests'])
+    assert(ret, 'Failed to run tests for deployment: ' .. k_deploy)
+    w1 = math.max(w1, ret.w1)
+    w2 = math.max(w2, ret.w2)
+    w3 = math.max(w3, ret.w3)
+    table.insert(results, { title = k_deploy, result = ret })
     -- recover options and properties to previous values
     set_env(opts, 'option')
     set_env(props, 'property')
@@ -378,6 +373,28 @@ local function test_func()
     if file_exists(userdb) then
       finalize()
       rmdir(to_acp_path(userdb))
+    end
+    local done_color = ret.with_failures and 'red' or 'green'
+    local done_msg = ret.with_failures and ' done (with failures).\n' or ' done.\n'
+    colormsg(done_msg, done_color)
+  end
+  print('\nTest Details:\n')
+  for _, v in ipairs(results) do
+    for i = 1, #v.result.col1 do
+      local is_header = (i == 1)
+      if is_header then
+        local header = (v.title or 'default')
+        local padding = math.floor((w1 + w2 + w3 - eaw_display_width(header)) / 2)
+        local ext = (w1 + w2 + w3 - eaw_display_width(header)) % 2
+        colormsg(string.rep('-', padding) .. header .. string.rep('-', padding + ext) .. '\n', 'yellow')
+      end
+      local row_color1 = is_header and 'yellow' or 'blue'
+      local row_color2 = is_header and 'yellow' or 'magenta'
+      local result_color = is_header and 'yellow' or (v.result.col3[i]:find('passed') and 'green' or 'red')
+      colormsg(v.result.col1[i] .. string.rep(' ', w1 - eaw_display_width(v.result.col1[i])) , row_color1)
+      colormsg(v.result.col2[i] .. string.rep(' ', w2 - eaw_display_width(v.result.col2[i])) , row_color2)
+      colormsg(v.result.col3[i] .. string.rep(' ', w3 - eaw_display_width(v.result.col3[i])) , result_color)
+      if is_header then colormsg(string.rep('-', w1 + w2 + w3) .. '\n', 'yellow') end
     end
   end
   finalize()
