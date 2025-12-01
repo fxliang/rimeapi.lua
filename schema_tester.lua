@@ -39,11 +39,30 @@ local rmdir = function(path)
   end
 end
 
+local function get_execution_dir()
+  local os_name = package.config:sub(1, 1) == "\\" and "windows" or "unix"
+  local cmd = os_name == "windows" and "cd"  or "pwd"
+  local handle = io.popen(cmd)
+  assert(handle ~= nil, "Failed to get current working directory")
+  local cwd = handle:read("*l"):gsub("\r?\n", "")
+  handle:close()
+  return cwd .. div
+end
+
+local exec_dir = get_execution_dir()
+local scr_path = script_path():gsub('[\n\r]*$','')
+assert(scr_path == exec_dir, "Please run the script in its own dir: " .. scr_path)
 -------------------------------------------------------------------------------
+if not RimeApi then require('rimeapi') end
 local config = require('schema_tester_config')
 assert(config ~= nil, "Failed to load schema_tester_config.lua")
+if type(arg[1]) == 'string' and file_exists(arg[1]) then
+  local config_chunk, load_err = loadfile(arg[1])
+  assert(config_chunk, 'Failed to load config file: ' .. tostring(load_err))
+  config = config_chunk()
+  assert(type(config) == 'table', 'Config file must return a table')
+end
 local schema_id = config.schema_id or 'luna_pinyin'
-if not RimeApi then require('rimeapi') end
 local unpack = table.unpack or unpack
 local function pack(...)
   return { n = select('#', ...), ... }
@@ -103,9 +122,9 @@ end
 -------------------------------------------------------------------------------
 local function init()
   traits.app_name = "schema_tester"
-  traits.shared_data_dir = "shared"
+  traits.shared_data_dir = config.shared_data_dir or "shared"
   traits.user_data_dir = config.user_data_dir or "schema_test"
-  traits.prebuilt_data_dir = config.shared_data_dir or "shared"
+  traits.prebuilt_data_dir = config.shared_data_dir
   traits.distribution_name = "rimeapi"
   traits.distribution_code_name = "rimeapi"
   traits.distribution_version = "1.0.0"
@@ -461,6 +480,7 @@ local function test_func()
   end
   print(string.rep('-', w1 + w2 + w3))
   print('Assertion Test Details:')
+  local ok = true
   for _, v in ipairs(results) do
     for i = 1, #v.result.col1 do
       local is_header = (i == 1)
@@ -473,12 +493,15 @@ local function test_func()
       local row_color1 = is_header and 'yellow' or 'blue'
       local row_color2 = is_header and 'yellow' or 'magenta'
       local result_color = is_header and 'yellow' or (v.result.col3[i]:find('passed') and 'green' or 'red')
+      if ok and result_color == 'red' then ok = false end
       colormsg(v.result.col1[i] .. string.rep(' ', w1 - eaw_display_width(v.result.col1[i])) , row_color1)
       colormsg(v.result.col2[i] .. string.rep(' ', w2 - eaw_display_width(v.result.col2[i])) , row_color2)
       colormsg(v.result.col3[i] .. string.rep(' ', w3 - eaw_display_width(v.result.col3[i])) , result_color)
       if is_header then colormsg(string.rep('-', w1 + w2 + w3) .. '\n', 'yellow') end
     end
   end
+  if ok then print() else colormsg('\n', 'red') end
+  assert(ok, 'Some tests failed')
   finalize()
 end
 -------------------------------------------------------------------------------
