@@ -342,6 +342,7 @@ local function test_func()
     return ctx.menu.candidates
   end
   local load_chunk = function(expr, env)
+    if type(expr) == 'function' then return true, call_with_env(expr, env) end
     local chunk, load_err
     if _VERSION == 'Lua 5.1' or type(setfenv) == 'function' then
       chunk, load_err = load('return ' .. expr, '=(assert)')
@@ -355,6 +356,7 @@ local function test_func()
     return pcall(chunk)
   end
   local run_chunk = function(expr, env)
+    if type(expr) == 'function' then return true, call_with_env(expr, env) end
     local chunk, load_err
     if _VERSION == 'Lua 5.1' or type(setfenv) == 'function' then
       chunk, load_err = load(expr, '=(assert)')
@@ -374,7 +376,66 @@ local function test_func()
       if type(key) == 'string' then env[key] = getter(rime_api, session, key) end
     end
   end
-
+  local get_func_name = function (func_chunk)
+    local info = debug.getinfo(func_chunk, 'S')
+    local function extract_function_name_robust(content)
+      local result_names = {}
+      -- Remove multi-line comments --[[ ... ]]
+      -- Explanation:
+      -- %-%-%[(=*)%[ : Matches "--[" followed by any number of "=" and then "[" (captures the number of "=")
+      -- (.-)         : Non-greedy match for the content in between
+      -- %]%1%]       : Matches "]" followed by the captured number of "=" and then "]"
+      -- This pattern is compatible with both --[[ ]] and --[=[ ]=] styles
+      local clean_code = content:gsub("%-%-%[(=*)%[(.-)%]%1%]", " ")
+      -- Remove single-line comments -- ... (until end of line)
+      clean_code = clean_code:gsub("%-%-[^\r\n]*", " ")
+      -- Normalize whitespace (replace newlines with spaces to facilitate cross-line matching)
+      clean_code = clean_code:gsub("[\r\n]+", " ")
+      -- Match "local name = function"
+      for name in clean_code:gmatch("local%s+([%w_]+)%s*=%s*function") do
+        table.insert(result_names, name)
+      end
+      -- Match "function name()" (covers both global and local function name() syntax)
+        for name in clean_code:gmatch("function%s+([%w_]+)%s*%(") do
+          table.insert(result_names, name)
+        end
+        -- Match "name = function" (global variable assignment form, optional)
+        -- Note: This might incorrectly match table field assignments like t.a = function. 
+        -- If you only want pure variable names, you might need to add start-of-word constraints.
+        for name in clean_code:gmatch("%s([%w_]+)%s*=%s*function") do
+          -- Avoid duplicates (if deduplication is needed)
+          local exists = false
+          for _, v in ipairs(result_names) do if v == name then exists = true break end end
+          if not exists and name ~= "local" then
+            table.insert(result_names, name)
+          end
+        end
+        return result_names
+      end
+      local function read_lines(filename, start_line, end_line)
+        if start_line < 1 then start_line = 1 end
+        if end_line < start_line then return nil, "End line must be greater than or equal to start line" end
+        local file, err = io.open(filename, "r")
+        if not file then return nil, "Failed to open file: " .. tostring(err) end
+        local lines = {}
+        local current_line_num = 0
+        for line in file:lines() do
+          current_line_num = current_line_num + 1
+          if current_line_num >= start_line then table.insert(lines, line) end
+          if current_line_num >= end_line then break end
+        end
+        file:close()
+        if current_line_num < start_line then return "" end
+        return table.concat(lines, "\n")
+      end
+      local source_content = read_lines(info.source:sub(2), info.linedefined, info.lastlinedefined)
+      local function_names = extract_function_name_robust(source_content)
+      local src = info.source:match("([^/\\]+)$")
+      if #function_names > 0 then
+        return '  ' .. table.concat(function_names, ', ') .. '@' .. src .. ':' .. info.linedefined
+      end
+      return ''
+  end
   local run_tests = function(tests)
     if not tests then return end
     -- run each test
@@ -399,8 +460,11 @@ local function test_func()
         sync_env(env, v_test['options'], 'option')
         inject_config_functions(env)
         local _, result = load_chunk(v_test['assert'], env)
-        local s1, s2, s3 = '  ' .. v_test['send'], '  ' .. v_test['assert'],
+        local s1, s2, s3 = '  ' .. v_test['send'], '  ' .. tostring(v_test['assert']),
           result == true and '  passed\n' or '  failed\n'
+        if type(v_test['assert']) == 'function' then
+          s2 = get_func_name(v_test['assert'])
+        end
         with_failures = with_failures or (not result)
         add_row(s1, s2, s3)
       end
@@ -423,7 +487,8 @@ local function test_func()
         sync_env(env, v_test['properties'], 'property')
         sync_env(env, v_test['options'], 'option')
         inject_config_functions(env)
-        colormsg('  send: \"' .. v_test['send'] .. '\", run: '.. tostring(v_test['run']))
+        local func_name = type(v_test['run']) == 'function' and get_func_name(v_test['run']) or tostring(v_test['run'])
+        colormsg('  send: \"' .. v_test['send'] .. '\", run: '.. func_name)
         run_chunk(v_test['run'], env)
       end
       rime_api:clear_composition(session)

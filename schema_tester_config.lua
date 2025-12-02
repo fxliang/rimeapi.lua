@@ -1,3 +1,16 @@
+local assert_function = function()
+  --[[
+    a demo function to be used for assertion, multiline comment test
+  --]]
+  -- single line comment test
+  local nop = [[aaabbbccc]] -- meaningless statement to test inline comment
+  return cand[1].text == '啊'
+end
+
+local print_composition_func = function()
+  print('\n  preedit: ' .. ctx.composition.preedit)
+  for k, v in pairs(cand) do print('  ' .. k, v.text) end
+end
 return {
   -- a demo function to print candidates and preedit, for run
   print_composition = function()
@@ -17,6 +30,8 @@ return {
     default = {
       tests = {
         { send = 'zhishiyunxingyixiakankanjieguo', run = [[print_composition()]] },
+        { send = 'zhishiyunxingyixiakankanjieguo', run = print_composition_func },
+        { send = 'a', assert = assert_function },
         { send = 'a', assert = "ret_in_assert()" },
         { send = 'a', assert = "cand[1].text == '啊'" },
         { send = 'b', assert = "cand[1].text == '不'" },
