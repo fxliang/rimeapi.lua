@@ -7,10 +7,12 @@ return {
   -- a demo function to be used for assertion
   ret_in_assert = function() return cand[1].text == '啊' end,
   schema_id = 'luna_pinyin',
-	-- absolute path or relative path to the schema_tester.lua root dir
+	-- absolute path or relative path to pwd
   user_data_dir = 'schema_test_user_data_dir',
-	-- absolute path or relative path to the schema_tester.lua root dir
-  shared_data_dir = 'shared',
+	-- absolute path or relative path to pwd, if not set, use `shared` in the same dir of schema_tester.lua
+  -- shared_data_dir = 'shared',
+  -- absolute path or relative path to pwd, if not set, use `log` in the same dir of schema_tester.lua
+  -- log_dir = 'log',
   deploy = {
     default = {
       tests = {

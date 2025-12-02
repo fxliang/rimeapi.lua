@@ -30,7 +30,7 @@ local script_cpath = script_path() .. div .. '?.dll' .. ';' .. script_path() .. 
 -- add the ?.so, ?.dylib or ?.dll to package.cpath ensure requiring
 -- you must keep the rime.dll, librime.dylib or librime.so in current search path or pwd
 package.cpath = package.cpath .. ';' .. script_cpath
-package.path = package.path .. ';' .. script_path() .. div .. '?.lua'
+package.path = script_path() .. div .. '?.lua' .. ';' .. package.path
 local rmdir = function(path)
   if package.config:sub(1,1) == '\\' then
     os.execute('rd /s /q "' .. path .. '"')
@@ -52,8 +52,7 @@ local function get_execution_dir()
 end
 
 local exec_dir = resolve_path(get_execution_dir())
-local scr_path = resolve_path(script_path():gsub('[\n\r]*$',''))
-assert(scr_path == exec_dir, "Please run the script in its own dir: " .. scr_path)
+local script_dir = resolve_path(script_path())
 -------------------------------------------------------------------------------
 local config = require('schema_tester_config')
 assert(config ~= nil, "Failed to load schema_tester_config.lua")
@@ -63,6 +62,22 @@ if type(arg[1]) == 'string' and file_exists(arg[1]) then
   config = config_chunk()
   assert(type(config) == 'table', 'Config file must return a table')
 end
+local function resolve_config_path(path, fallback)
+  if path and (path:sub(1,1) ~= '/' and path:sub(1,1) ~= ':') then
+    return exec_dir .. div .. path
+  else
+    return script_dir .. div .. fallback -- if not set, use script dir relative path with fallback
+  end
+end
+config.shared_data_dir = resolve_config_path(config.shared_data_dir, 'shared')
+config.user_data_dir = resolve_config_path(config.user_data_dir, 'schema_tester')
+config.log_dir = resolve_config_path(config.log_dir, 'log')
+print('Using shared_data_dir: ' .. tostring(config.shared_data_dir))
+print('Using user_data_dir: ' .. tostring(config.user_data_dir))
+print('Using log_dir: ' .. tostring(config.log_dir))
+print('Using schema_id: ' .. tostring(config.schema_id or 'luna_pinyin'))
+print()
+-------------------------------------------------------------------------------
 local schema_id = config.schema_id or 'luna_pinyin'
 local unpack = table.unpack or unpack
 local function pack(...)
@@ -129,7 +144,7 @@ local function init()
   traits.distribution_name = "rimeapi"
   traits.distribution_code_name = "rimeapi"
   traits.distribution_version = "1.0.0"
-  traits.log_dir = "log"
+  traits.log_dir = config.log_dir or "log"
   if not os.mkdir then
     -- check system is windows or unix-like
     local is_windows = package.config:sub(1, 1) == '\\'
@@ -385,7 +400,7 @@ local function test_func()
         inject_config_functions(env)
         local _, result = load_chunk(v_test['assert'], env)
         local s1, s2, s3 = '  ' .. v_test['send'], '  ' .. v_test['assert'],
-          result and '  passed\n' or '  failed\n'
+          result == true and '  passed\n' or '  failed\n'
         with_failures = with_failures or (not result)
         add_row(s1, s2, s3)
       end
