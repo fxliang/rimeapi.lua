@@ -2431,8 +2431,8 @@ static void register_rime_bindings(lua_State *L) {
 #define CLEAR_RIME_ERROR() ((void)dlerror())
 #endif
 
-static void* load_librime() {
 #ifdef WIN32
+HMODULE load_librime() {
   // default load the librime dll from the same directory as this module
   HMODULE hModule = nullptr;
   char modulePath[MAX_PATH] = {0};
@@ -2442,16 +2442,17 @@ static void* load_librime() {
     fs::path moduleDir = fs::path(modulePath).parent_path();
     fs::path rimePath = moduleDir / "rime.dll";
     HMODULE handle = DLO(rimePath.string().c_str());
-    if (handle) return (void*)handle;
+    if (handle) return handle;
     rimePath = moduleDir / "librime.dll";
     handle = DLO(rimePath.string().c_str());
-    if (handle) return (void*)handle;
+    if (handle) return handle;
   }
   HMODULE handle = DLO("rime.dll");
-  if (handle) return (void*)handle;
+  if (handle) return handle;
   handle = DLO("librime.dll");
   return nullptr;
 #else
+static void* load_librime() {
   void* handle = nullptr;
   Dl_info dl_info;
   if (dladdr((void*)&load_librime, &dl_info) == 0)
