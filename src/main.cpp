@@ -2417,8 +2417,6 @@ static void register_rime_bindings(lua_State *L) {
 #ifdef WIN32
 #define FREE_RIME() do { if (librime) { FreeLibrary(librime); librime = nullptr; } } while(0)
 #define DLO(x) LoadLibraryA(x)
-#define DLO2(x, y) (DLO(x) ? DLO(x) : DLO(y))
-#define LOAD_RIME_LIBRARY() (DLO2("rime.dll", "./rime.dll") ? DLO2("rime.dll", "./rime.dll") : DLO2("librime.dll", "./librime.dll"))
 #define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(GetProcAddress(handle, "rime_get_api"))
 #define CLEAR_RIME_ERROR() ((void)0)
 #else
@@ -2429,14 +2427,47 @@ static void register_rime_bindings(lua_State *L) {
 #endif
 #define FREE_RIME() do { if (librime) { dlclose(librime); librime = nullptr; } } while(0)
 #define DLO(x) dlopen(x, RTLD_LAZY | RTLD_LOCAL| RTLD_DEEPBIND)
-#define LOAD_RIME_LIBRARY() (DLO(LIBNAME) ? DLO(LIBNAME) : DLO("./" LIBNAME))
 #define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(dlsym(handle, "rime_get_api"))
 #define CLEAR_RIME_ERROR() ((void)dlerror())
 #endif
 
+static void* load_librime() {
+#ifdef WIN32
+  // default load the librime dll from the same directory as this module
+  HMODULE hModule = nullptr;
+  char modulePath[MAX_PATH] = {0};
+  if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         (LPCSTR)&load_librime, &hModule)) {
+    GetModuleFileNameA(hModule, modulePath, MAX_PATH);
+    fs::path moduleDir = fs::path(modulePath).parent_path();
+    fs::path rimePath = moduleDir / "rime.dll";
+    HMODULE handle = DLO(rimePath.string().c_str());
+    if (handle) return (void*)handle;
+    rimePath = moduleDir / "librime.dll";
+    handle = DLO(rimePath.string().c_str());
+    if (handle) return (void*)handle;
+  }
+  HMODULE handle = DLO("rime.dll");
+  if (handle) return (void*)handle;
+  handle = DLO("librime.dll");
+  return nullptr;
+#else
+  void* handle = nullptr;
+  Dl_info dl_info;
+  if (dladdr((void*)&load_librime, &dl_info) == 0)
+    return nullptr;
+  const fs::path modulePath = fs::path(dl_info.dli_fname).parent_path();
+  const fs::path rimePath = modulePath / LIBNAME;
+  handle = DLO(rimePath.string().c_str());
+  if (!handle)
+    handle = DLO(LIBNAME);
+  return handle;
+#endif
+}
+
 static void get_api() {
   if (rime_api) return;
-  librime = LOAD_RIME_LIBRARY();
+  librime = load_librime();
   if (!librime) {
     fprintf(stderr, "Error: failed to load librime\n");
     return;
