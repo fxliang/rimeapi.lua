@@ -39,6 +39,8 @@ local rmdir = function(path)
   end
 end
 
+if not RimeApi then require('rimeapi') end
+
 local function get_execution_dir()
   local os_name = package.config:sub(1, 1) == "\\" and "windows" or "unix"
   local cmd = os_name == "windows" and "cd"  or "pwd"
@@ -49,11 +51,10 @@ local function get_execution_dir()
   return cwd .. div
 end
 
-local exec_dir = get_execution_dir()
-local scr_path = script_path():gsub('[\n\r]*$','')
+local exec_dir = resolve_path(get_execution_dir())
+local scr_path = resolve_path(script_path():gsub('[\n\r]*$',''))
 assert(scr_path == exec_dir, "Please run the script in its own dir: " .. scr_path)
 -------------------------------------------------------------------------------
-if not RimeApi then require('rimeapi') end
 local config = require('schema_tester_config')
 assert(config ~= nil, "Failed to load schema_tester_config.lua")
 if type(arg[1]) == 'string' and file_exists(arg[1]) then

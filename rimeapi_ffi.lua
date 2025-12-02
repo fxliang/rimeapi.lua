@@ -2147,6 +2147,35 @@ if os.isdir == nil or type(os.isdir) ~= 'function' then
   end
 end
 
+function resolve_path(path)
+  if ffi.os == 'Windows' then
+    ffi.cdef[[
+      typedef unsigned int DWORD;
+      DWORD GetFullPathNameA(const char* lpFileName, DWORD nBufferLength, char* lpBuffer, char** lpFilePart);
+    ]]
+    local MAX_PATH = 260
+    local buffer = ffi.new("char[?]", MAX_PATH)
+    local ret = ffi.C.GetFullPathNameA(to_acp_path(path), MAX_PATH, buffer, nil)
+    if ret == 0 or ret > MAX_PATH then
+      return nil, "Failed to resolve path: " .. tostring(path)
+    end
+    local retstr = safestr(buffer)
+    return retstr, nil
+  else
+    ffi.cdef[[
+      char* realpath(const char* path, char* resolved_path);
+    ]]
+    local PATH_MAX = 4096
+    local buffer = ffi.new("char[?]", PATH_MAX)
+    local ret = ffi.C.realpath(path, buffer)
+    if ret == nil then
+      return nil, "Failed to resolve path: " .. tostring(path)
+    end
+    local retstr = safestr(buffer)
+    return retstr, nil
+  end
+end
+
 if ffi.os == 'Windows' then
   ffi.cdef[[
     void* GetStdHandle(unsigned long nStdHandle);

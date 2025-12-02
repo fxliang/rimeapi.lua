@@ -2339,7 +2339,7 @@ static int to_acp_path(lua_State* L) {
   return 1;
 }
 
-int set_console_color(lua_State* L) {
+static int set_console_color(lua_State* L) {
 #ifdef WIN32
   unsigned short attributes = (unsigned short)luaL_checkinteger(L, 1);
   HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -2347,6 +2347,20 @@ int set_console_color(lua_State* L) {
     SetConsoleTextAttribute(hConsole, attributes);
 #endif
   return 0;
+}
+
+static int resolve_path(lua_State* L) {
+  fs::path p = get_path_from_lua(L, 1);
+  fs::path resolved;
+  std::error_code ec;
+  resolved = fs::canonical(p, ec);
+  if (ec) {
+    lua_pushnil(L);
+  } else {
+    const auto str = resolved.string();
+    lua_pushstring(L, str.c_str());
+  }
+  return 1;
 }
 
 static void register_rime_bindings(lua_State *L) {
@@ -2396,6 +2410,7 @@ static void register_rime_bindings(lua_State *L) {
   REGISTER_GLOBAL_FUNC("file_exists", file_exists);
   REGISTER_GLOBAL_FUNC("to_acp_path", to_acp_path);
   REGISTER_GLOBAL_FUNC("set_console_color", set_console_color);
+  REGISTER_GLOBAL_FUNC("resolve_path", resolve_path);
 #undef REGISTER_GLOBAL_FUNC
 }
 
