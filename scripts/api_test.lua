@@ -47,12 +47,12 @@ print('rime_api:set_notification_handler passed')
 rime_api:initialize(traits)
 print('rime_api:initialize passed')
 if rime_api:start_maintenance(true) then
+  rime_api:join_maintenance_thread()
+  print('rime_api:join_maintenance_thread passed')
   print('rime_api:start_maintenance passed')
   local is_maintenace_mode = rime_api:is_maintenance_mode()
   assert(is_maintenace_mode ~= nil)
   print('rime_api:is_maintenance_mode passed: ')
-  rime_api:join_maintenance_thread()
-  print('rime_api:join_maintenance_thread passed')
 end
 
 ----------------------------------------------------------------
