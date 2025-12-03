@@ -1,21 +1,22 @@
+-------------------------------------------------------------------------------
 -- get absolute path of current script
 local function script_path()
   local fullpath = debug.getinfo(1,"S").source:sub(2)
   local dirname, filename
   if package.config:sub(1,1) == '\\' then
     local dirname_, filename_ = fullpath:match('^(.*\\)([^\\]+)$')
-    local currentDir = io.popen("cd"):read("*l")
     if not dirname_ then dirname_ = '.' end
     if not filename_ then filename_ = fullpath end
     local command = 'cd ' .. dirname_ .. ' && cd'
     local p = io.popen(command)
-    fullpath = p:read("*l") .. '\\' .. filename_
-    p:close()
-    os.execute('cd ' .. currentDir)
+    fullpath = p and (p:read("*l") .. '\\' .. filename_) or ''
+    if p then p:close() end
     fullpath = fullpath:gsub('[\n\r]*$','')
     dirname, filename = fullpath:match('^(.*\\)([^\\]+)$')
   else
-    fullpath = io.popen("realpath '"..fullpath.."'", 'r'):read('a')
+    local p = io.popen("realpath '"..fullpath.."'", 'r')
+    fullpath = p and p:read('a') or ''
+    if p then p:close() end
     fullpath = fullpath:gsub('[\n\r]*$','')
     dirname, filename = fullpath:match('^(.*/)([^/]-)$')
   end
@@ -138,13 +139,13 @@ end
 -------------------------------------------------------------------------------
 local function init()
   traits.app_name = "schema_tester"
-  traits.shared_data_dir = config.shared_data_dir or "shared"
-  traits.user_data_dir = config.user_data_dir or "schema_test"
+  traits.shared_data_dir = config.shared_data_dir or (script_path() .. "shared")
+  traits.user_data_dir = config.user_data_dir or (script_path() .. "schema_test")
   traits.prebuilt_data_dir = config.shared_data_dir
   traits.distribution_name = "rimeapi"
   traits.distribution_code_name = "rimeapi"
   traits.distribution_version = "1.0.0"
-  traits.log_dir = config.log_dir or "log"
+  traits.log_dir = config.log_dir or (script_path() .. "log")
   if not os.mkdir then
     -- check system is windows or unix-like
     local is_windows = package.config:sub(1, 1) == '\\'
