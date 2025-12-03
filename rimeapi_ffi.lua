@@ -1179,6 +1179,23 @@ function RimeSchemaList()
 end
 -------------------------------------------------------------------------------
 --- get rime api end
+if ffi.os == 'Windows' then
+  ffi.cdef[[
+  typedef struct _RTL_CRITICAL_SECTION {
+    void* DebugInfo;
+    long LockCount;
+    long RecursionCount;
+    void* OwningThread;
+    void* LockSemaphore;
+    uintptr_t SpinCount;
+  } CRITICAL_SECTION;
+
+  void InitializeCriticalSection(CRITICAL_SECTION* lpCriticalSection);
+  void EnterCriticalSection(CRITICAL_SECTION* lpCriticalSection);
+  void LeaveCriticalSection(CRITICAL_SECTION* lpCriticalSection);
+  void DeleteCriticalSection(CRITICAL_SECTION* lpCriticalSection);
+  ]]
+end
 function RimeApi()
   local tosessionid = function(session_id)
     if type(session_id) == 'number' then
@@ -1193,28 +1210,9 @@ function RimeApi()
   end
 
   local pthread_mutex_defined = false
-  local critical_section_defined = false
 
   local function create_notification_mutex()
     if ffi.os == "Windows" then
-      if not critical_section_defined then
-        ffi.cdef[[
-        typedef struct _RTL_CRITICAL_SECTION {
-          void* DebugInfo;
-          long LockCount;
-          long RecursionCount;
-          void* OwningThread;
-          void* LockSemaphore;
-          uintptr_t SpinCount;
-        } CRITICAL_SECTION;
-
-        void InitializeCriticalSection(CRITICAL_SECTION* lpCriticalSection);
-        void EnterCriticalSection(CRITICAL_SECTION* lpCriticalSection);
-        void LeaveCriticalSection(CRITICAL_SECTION* lpCriticalSection);
-        void DeleteCriticalSection(CRITICAL_SECTION* lpCriticalSection);
-        ]]
-        critical_section_defined = true
-      end
 
       local storage = ffi.new("CRITICAL_SECTION[1]")
       ffi.C.InitializeCriticalSection(storage)
