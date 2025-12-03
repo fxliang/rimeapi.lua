@@ -1488,7 +1488,7 @@ namespace RimeApiReg {
       RimeSchemaList* list = smart_shared_ptr_todata<RimeSchemaList>(L, 2);
       if (list) func_ptr(list);
       return 0;
-  } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, char*, size_t) {
+    } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, char*, size_t) {
       // get_current_schema(session_id, buffer, buffer_size)
       if (lua_gettop(L) < 2) {
         luaL_error(L, "Expected 2 arguments for \"%s\", (%s, %s) is required\
