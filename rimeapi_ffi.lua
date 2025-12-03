@@ -352,12 +352,8 @@ os.mkdir = type(os.mkdir) == 'function' and os.mkdir or function (path, codepage
     -- fix path for termux
     if is_termux then
       if os.isdir(path, codepage) then return true end
-      local p = os.popen("mkdir -p '" .. path .. "'", 'r')
-      if p then
-        p:close()
-        return os.isdir(path, codepage)
-      end
-      return false
+      os.execute("mkdir -p '" .. path .. "'")
+      return os.isdir(path)
     end
     if os.isdir(path, codepage) then return true end
     ffi.cdef[[
