@@ -347,6 +347,17 @@ os.mkdir = type(os.mkdir) == 'function' and os.mkdir or function (path, codepage
     local r = ffi.C.CreateDirectoryA(to_acp_path(path, codepage), nil)
     return (r ~= 0) and true or (ffi.C.GetLastError() == 183)
   else
+    -- fix path for termux
+    if is_termux then
+      if os.isdir(path, codepage) then return true end
+      local p = os.popen("mkdir -p '" .. path .. "'", 'r')
+      if p then
+        p:close()
+        return os.isdir(path, codepage)
+      end
+      return false
+    end
+    if os.isdir(path, codepage) then return true end
     ffi.cdef[[
       typedef struct DIR DIR;
       DIR *opendir(const char *name);
