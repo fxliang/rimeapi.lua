@@ -426,7 +426,7 @@ if ffi.os == "Linux" or ffi.os == "OSX" then
   local ok, bit = pcall(require, "bit")  -- LuaJIT bit lib
   local bor = ok and bit.bor or function(a,b) return a + b end
   local RTLD_NOW = 2
-  local RTDL_DEEPBIND = ( is_termux or ffi.os == 'OSX' ) and 0 or 0x8
+  local RTLD_DEEPBIND = ( is_termux or ffi.os == 'OSX' ) and 0 or 0x8
   local libname = ffi.os == 'OSX' and "librime.dylib" or "librime.so"
   local fullpath = debug.getinfo(1,"S").source:sub(2)
   local p = io.popen("realpath '"..fullpath.."'", 'r')
@@ -434,8 +434,8 @@ if ffi.os == "Linux" or ffi.os == "OSX" then
   if p then p:close() end
   fullpath = fullpath:gsub('[\n\r]*$','')
   local dirname, _ = fullpath:match('^(.*/)([^/]-)$')
-  local handle = ffi.C.dlopen(dirname .. libname, bor(RTLD_NOW, RTDL_DEEPBIND))
-  if not handle then handle = ffi.C.dlopen(libname, bor(RTLD_NOW, RTDL_DEEPBIND)) end
+  local handle = ffi.C.dlopen(dirname .. libname, bor(RTLD_NOW, RTLD_DEEPBIND))
+  if handle == nil then handle = ffi.C.dlopen(libname, bor(RTLD_NOW, RTLD_DEEPBIND)) end
   assert(handle ~= nil, "failed to load " .. libname)
   local sym = ffi.C.dlsym(handle, "rime_get_api")
   if sym == nil then
