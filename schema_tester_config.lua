@@ -36,6 +36,7 @@ return {
         { send = 'a', assert = "cand[1].text == '啊'" },
         { send = 'b', assert = "cand[1].text == '不'" },
         { send = 'wei', assert = "cand[1].text == '爲'" },
+        { send = 'a', assert = function() return cand[1].text == '啊' end }
       },
     },
     opt_and_prop = {
@@ -47,7 +48,8 @@ return {
           { 
             send = 'key_sequence_to_send',
             run = 'lua_expression_to_run',        -- lua expression string to be executed, ctx, status, commit, cand are exposed
-            assert = 'lua_expression_to_assert',  -- lua expression string to be evaluated, ctx, status, commit, cand are exposed
+            assert = 'lua_expression_to_assert',  -- lua expression string to be evaluated, or function defined in config file, inline function
+                                                  -- ctx, status, commit, cand are exposed
                                                   -- property names and option names in the following tables are also exposed
             properties = { 'prop1', 'prop2' },    -- table_of_props_to_expose
             options = { 'opt1', 'opt2' },         -- table_of_opts_to_expose
