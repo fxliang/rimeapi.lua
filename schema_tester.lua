@@ -41,12 +41,19 @@ local rmdir = function(path)
 end
 
 if not RimeApi then require('rimeapi') end
+local cp = set_console_codepage(65001)
+local function assert_exit(cond, msg)
+  if not cond then
+    set_console_codepage(cp)
+    error(msg)
+  end
+end
 
 local function get_execution_dir()
   local os_name = package.config:sub(1, 1) == "\\" and "windows" or "unix"
   local cmd = os_name == "windows" and "cd"  or "pwd"
   local handle = io.popen(cmd)
-  assert(handle ~= nil, "Failed to get current working directory")
+  assert_exit(handle ~= nil, "Failed to get current working directory")
   local cwd = handle:read("*l"):gsub("\r?\n", "")
   handle:close()
   return cwd .. div
@@ -56,12 +63,12 @@ local exec_dir = resolve_path(get_execution_dir())
 local script_dir = resolve_path(script_path())
 -------------------------------------------------------------------------------
 local config = require('schema_tester_config')
-assert(config ~= nil, "Failed to load schema_tester_config.lua")
+assert_exit(config ~= nil, "Failed to load schema_tester_config.lua")
 if type(arg[1]) == 'string' and file_exists(arg[1]) then
   local config_chunk, load_err = loadfile(arg[1])
-  assert(config_chunk, 'Failed to load config file: ' .. tostring(load_err))
+  assert_exit(config_chunk, 'Failed to load config file: ' .. tostring(load_err))
   config = config_chunk()
-  assert(type(config) == 'table', 'Config file must return a table')
+  assert_exit(type(config) == 'table', 'Config file must return a table')
 end
 local function resolve_config_path(path, fallback)
   if path and (path:sub(1,1) ~= '/' and path:sub(1,1) ~= ':') then
@@ -132,8 +139,8 @@ local function init_session()
   rime_api:initialize(traits)
   if rime_api:start_maintenance(true) then rime_api:join_maintenance_thread() end
   session = rime_api:create_session()
-  assert(session ~= nil)
-  assert(rime_api:select_schema(session, schema_id) == true,
+  assert_exit(session ~= nil)
+  assert_exit(rime_api:select_schema(session, schema_id) == true,
     "Failed to select schema: " .. tostring(schema_id))
 end
 -------------------------------------------------------------------------------
@@ -154,9 +161,9 @@ local function init()
     os.execute(mkdir_cmd .. traits.user_data_dir)
     os.execute(mkdir_cmd .. traits.log_dir)
   else
-    assert(os.mkdir(traits.shared_data_dir) == true)
-    assert(os.mkdir(traits.user_data_dir) == true)
-    assert(os.mkdir(traits.log_dir) == true)
+    assert_exit(os.mkdir(traits.shared_data_dir) == true)
+    assert_exit(os.mkdir(traits.user_data_dir) == true)
+    assert_exit(os.mkdir(traits.log_dir) == true)
   end
   rime_api:setup(traits)
   init_session()
@@ -294,10 +301,9 @@ local function eaw_display_width(s, ambiguous_is_wide)
 end
 -------------------------------------------------------------------------------
 local function test_func()
-  local cp = set_console_codepage(65001)
   init()
   if (session == nil) then set_console_codepage(cp) end
-  assert(session ~= nil, "Session is not initialized")
+  assert_exit(session ~= nil, "Session is not initialized")
   local ctx = RimeContext()
   local status = RimeStatus()
   local commit = RimeCommit()
@@ -311,7 +317,7 @@ local function test_func()
       ret[k] = getter(rime_api, session, k)
       setter(rime_api, session, k, v)
       local new_value = getter(rime_api, session, k)
-      assert(new_value == v, 'Failed to set ' .. kind .. ': ' .. k)
+      assert_exit(new_value == v, 'Failed to set ' .. kind .. ': ' .. k)
     end
     return ret
   end
@@ -338,10 +344,10 @@ local function test_func()
 
   -- send key sequence and return candidates, update ctx, status, commit
   local send = function(id, keys)
-    assert(rime_api:simulate_key_sequence(id, keys) ~= nil, 'Failed to send key sequence: ' .. keys)
-    assert(rime_api:get_context(session, ctx) ~= nil, 'Failed to get context')
-    assert(rime_api:get_status(session, status) ~= nil, "Failed to get status")
-    assert(rime_api:get_commit(session, commit) ~= nil, "Failed to get commit")
+    assert_exit(rime_api:simulate_key_sequence(id, keys) ~= nil, 'Failed to send key sequence: ' .. keys)
+    assert_exit(rime_api:get_context(session, ctx) ~= nil, 'Failed to get context')
+    assert_exit(rime_api:get_status(session, status) ~= nil, "Failed to get status")
+    assert_exit(rime_api:get_commit(session, commit) ~= nil, "Failed to get commit")
     return ctx.menu.candidates
   end
   local load_chunk = function(expr, env)
@@ -349,11 +355,11 @@ local function test_func()
     local chunk, load_err
     if _VERSION == 'Lua 5.1' or type(setfenv) == 'function' then
       chunk, load_err = load('return ' .. expr, '=(assert)')
-      assert(chunk, 'Failed to compile assert: ' .. tostring(load_err))
+      assert_exit(chunk, 'Failed to compile assert: ' .. tostring(load_err))
       setfenv(chunk, env)
     else
       chunk, load_err = load('return ' .. expr, '=(assert)', 't', env)
-      assert(chunk, 'Failed to compile assert: ' .. tostring(load_err))
+      assert_exit(chunk, 'Failed to compile assert: ' .. tostring(load_err))
     end
     if not chunk then return false, nil end
     return pcall(chunk)
@@ -363,11 +369,11 @@ local function test_func()
     local chunk, load_err
     if _VERSION == 'Lua 5.1' or type(setfenv) == 'function' then
       chunk, load_err = load(expr, '=(assert)')
-      assert(chunk, 'Failed to compile run: ' .. tostring(load_err))
+      assert_exit(chunk, 'Failed to compile run: ' .. tostring(load_err))
       setfenv(chunk, env)
     else
       chunk, load_err = load(expr, '=(assert)', 'bt', env)
-      assert(chunk, 'Failed to compile run: ' .. tostring(load_err))
+      assert_exit(chunk, 'Failed to compile run: ' .. tostring(load_err))
     end
     if not chunk then return false end
     return pcall(chunk)
@@ -504,16 +510,16 @@ local function test_func()
     finalize()
     local levers = RimeLeversApi()
     local settings = levers:custom_settings_init(schema_id, 'schema_tester.lua')
-    assert(levers:load_settings(settings) ~= nil, 'Failed to load settings')
+    assert_exit(levers:load_settings(settings) ~= nil, 'Failed to load settings')
     for _, line in pairs(patch_lines) do
-      assert(type(line) == 'table' and line.key ~= nil and line.value ~= nil,
+      assert_exit(type(line) == 'table' and line.key ~= nil and line.value ~= nil,
         'Invalid patch line: ' .. tostring(line))
       local patch = RimeConfig()
-      assert(rime_api:config_load_string(patch, line.value) == true,
+      assert_exit(rime_api:config_load_string(patch, line.value) == true,
         'Failed to load config from string: ' .. tostring(line.value))
-      assert(levers:customize_item(settings, line.key, patch) == true,
+      assert_exit(levers:customize_item(settings, line.key, patch) == true,
         'Failed to customize item: ' .. tostring(line.key))
-      assert(levers:save_settings(settings) == true, 'Failed to save settings')
+      assert_exit(levers:save_settings(settings) == true, 'Failed to save settings')
     end
     levers:custom_settings_destroy(settings)
     init_session()
@@ -540,7 +546,7 @@ local function test_func()
     local props = set_env(v_deploy['properties'], 'property')
     -- run tests
     local ret = run_tests(v_deploy['tests'])
-    assert(ret, 'Failed to run tests for deployment: ' .. k_deploy)
+    assert_exit(ret, 'Failed to run tests for deployment: ' .. k_deploy)
     local done_color = ret.with_failures and 'red' or 'green'
     local done_msg = ret.with_failures and ' done (with failures).\n' or ' done.\n'
     colormsg(done_msg, done_color)
@@ -585,8 +591,7 @@ local function test_func()
     end
   end
   if ok then print() else colormsg('\n', 'red') end
-  set_console_codepage(cp)
-  assert(ok, 'Some tests failed')
+  assert_exit(ok, 'Some tests failed')
   finalize()
 end
 -------------------------------------------------------------------------------
