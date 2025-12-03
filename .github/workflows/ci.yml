@@ -225,7 +225,17 @@ jobs:
           cmake --build build --config Release
           cmake --install build --prefix . --config Release
 
+      - name: cache luajit
+        id: cache-luajit
+        uses: actions/cache@v4
+        with:
+          path: LuaJIT
+          key: ${{ runner.os }}-luajit-${{ matrix.arch }} 
+          restore-keys: |
+            ${{ runner.os }}-luajit-${{ matrix.arch }}
+            
       - name: install luajit
+        if: steps.cache-luajit.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           git clone -v --depth=1 https://github.com/LuaJIT/LuaJIT
