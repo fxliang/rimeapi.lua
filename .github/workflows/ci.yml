@@ -203,7 +203,21 @@ jobs:
         with:
           arch: ${{ matrix.arch }}
 
+      - name: cache librime
+        id: cache-librime
+        uses: actions/cache@v4
+        with:
+          path: |
+            include
+            lib
+            lib64
+            shared/opencc
+          key: ${{ runner.os }}-librime-latest-${{ matrix.arch }}
+          restore-keys: |
+            ${{ runner.os }}-librime-latest-{{ matrix.arch }}
+
       - name: Copy Rime files
+        if: steps.cache-librime.outputs.cache-hit != 'true'
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
