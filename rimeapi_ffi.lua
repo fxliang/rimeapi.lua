@@ -334,6 +334,7 @@ function to_acp_path(path, cp)
   end
   return real_path
 end
+local is_termux = os.getenv('PREFIX') and string.match(os.getenv("PREFIX") or '', ('/data/data/com.termux/files/usr')) ~= nil or false
 -------------------------------------------------------------------------------
 --- os.mkdir function
 os.mkdir = type(os.mkdir) == 'function' and os.mkdir or function (path, codepage)
@@ -415,7 +416,6 @@ end
 --- load librime and get rime api
 local api
 local rime_get_api_func
-local is_termux = os.getenv('PREFIX') and string.match(os.getenv("PREFIX") or '', ('/data/data/com.termux/files/usr')) ~= nil or false
 if ffi.os == "Linux" or ffi.os == "OSX" then
   ffi.cdef[[
     void* dlopen(const char *filename, int flag);
@@ -428,13 +428,19 @@ if ffi.os == "Linux" or ffi.os == "OSX" then
   local RTLD_NOW = 2
   local RTDL_DEEPBIND = ( is_termux or ffi.os == 'OSX' ) and 0 or 0x8
   local libname = ffi.os == 'OSX' and "librime.dylib" or "librime.so"
-  local handle = ffi.C.dlopen(libname, bor(RTLD_NOW, RTDL_DEEPBIND))
-  if handle == nil then handle = ffi.C.dlopen("./" .. libname, bor(RTLD_NOW, RTDL_DEEPBIND)) end
+  local fullpath = debug.getinfo(1,"S").source:sub(2)
+  local p = io.popen("realpath '"..fullpath.."'", 'r')
+  fullpath = p and p:read('a') or ''
+  if p then p:close() end
+  fullpath = fullpath:gsub('[\n\r]*$','')
+  local dirname, _ = fullpath:match('^(.*/)([^/]-)$')
+  local handle = ffi.C.dlopen(dirname .. libname, bor(RTLD_NOW, RTDL_DEEPBIND))
+  if not handle then handle = ffi.C.dlopen(libname, bor(RTLD_NOW, RTDL_DEEPBIND)) end
   assert(handle ~= nil, "failed to load " .. libname)
   local sym = ffi.C.dlsym(handle, "rime_get_api")
   if sym == nil then
     local err = ffi.C.dlerror()
-    error("failed to find symbol rime_get_api: " .. safestr(err))
+    error("failed to find symbol rime_get_api: " .. (safestr(err) or ''))
   end
   rime_get_api_func = ffi.cast("RimeApi* (*)()", sym)
   api = rime_get_api_func()
