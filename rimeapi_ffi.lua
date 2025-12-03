@@ -1499,6 +1499,8 @@ function RimeApi()
         return function(_, handler_func, context_object)
           if handler_func ~= nil and type(handler_func) ~= 'function' then
             error("handler_func must be a function or nil")
+          elseif type(handler_func) == 'function' then
+            io.stderr:write('warning: set a lua function for librime is somehow unsafe yet!!!\n')
           end
 
           notification_lock()

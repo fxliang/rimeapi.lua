@@ -1198,6 +1198,8 @@ namespace RimeApiReg {
   static int lua_set_notification_handler(lua_State *L) {
     T* api = smart_shared_ptr_todata<T>(L, 1);
     if (lua_isfunction(L, 2)) {
+      // warning msg
+      printf("warning: set a lua function for librime is somehow unsafe yet!!!\n");
       // Ensure per-state userdata exists in registry to run GC when state closes
       lua_pushlightuserdata(L, (void*)&notification_registry_key_sentinel);
       lua_gettable(L, LUA_REGISTRYINDEX);
