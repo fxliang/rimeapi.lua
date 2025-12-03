@@ -2276,6 +2276,10 @@ namespace RimeLeversApiReg {
 
 static int os_trymkdir(lua_State* L) {
   const char* path = luaL_checkstring(L, 1);
+  if (string(path).empty()) {
+    lua_pushboolean(L, true);
+    return 1;
+  }
 #ifdef WIN32
   unsigned int codepage = 65001; // UTF-8
   if (lua_gettop(L) > 1) {

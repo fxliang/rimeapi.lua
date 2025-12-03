@@ -338,7 +338,8 @@ local is_termux = os.getenv('PREFIX') and string.match(os.getenv("PREFIX") or ''
 -------------------------------------------------------------------------------
 --- os.mkdir function
 os.mkdir = type(os.mkdir) == 'function' and os.mkdir or function (path, codepage)
-  if type(path) ~= "string" or path == "" then return false end
+  if type(path) ~= "string" then return false end
+  if path == '' then return true end
   if ffi.os == "Windows" then
     ffi.cdef[[
       int CreateDirectoryA(const char *lpPathName, void *lpSecurityAttributes);
