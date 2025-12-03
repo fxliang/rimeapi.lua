@@ -1,3 +1,13 @@
+#!/bin/bash
+--[[ 2>/dev/null;:
+for interpreter in luajit lua lua5.4 lua5.3 lua5.2 lua5.1; do
+  if command -v "$interpreter" >/dev/null 2>&1; then
+    exec "$interpreter" "$0" "$@"
+  fi
+done
+echo "错误: 未找到任何 Lua 解释器 (luajit, lua, lua5.x)" >&2
+exit 1
+]]
 -------------------------------------------------------------------------------
 -- get absolute path of current script
 local function script_path()
