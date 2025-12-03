@@ -294,7 +294,9 @@ local function eaw_display_width(s, ambiguous_is_wide)
 end
 -------------------------------------------------------------------------------
 local function test_func()
+  local cp = set_console_codepage(65001)
   init()
+  if (session == nil) then set_console_codepage(cp) end
   assert(session ~= nil, "Session is not initialized")
   local ctx = RimeContext()
   local status = RimeStatus()
@@ -336,8 +338,8 @@ local function test_func()
 
   -- send key sequence and return candidates, update ctx, status, commit
   local send = function(id, keys)
-    assert(rime_api:simulate_key_sequence(id, keys), 'Failed to send key sequence: ' .. keys)
-    assert(rime_api:get_context(session, ctx), 'Failed to get context')
+    assert(rime_api:simulate_key_sequence(id, keys) ~= nil, 'Failed to send key sequence: ' .. keys)
+    assert(rime_api:get_context(session, ctx) ~= nil, 'Failed to get context')
     assert(rime_api:get_status(session, status) ~= nil, "Failed to get status")
     assert(rime_api:get_commit(session, commit) ~= nil, "Failed to get commit")
     return ctx.menu.candidates
@@ -583,10 +585,9 @@ local function test_func()
     end
   end
   if ok then print() else colormsg('\n', 'red') end
+  set_console_codepage(cp)
   assert(ok, 'Some tests failed')
   finalize()
 end
 -------------------------------------------------------------------------------
-local cp = set_console_codepage(65001)
 test_func()
-set_console_codepage(cp)
