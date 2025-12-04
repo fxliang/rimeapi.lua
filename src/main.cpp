@@ -2438,7 +2438,7 @@ static void register_rime_bindings(lua_State *L) {
 #endif
 
 #ifdef WIN32
-HMODULE load_librime() {
+static HMODULE load_librime() {
   // default load the librime dll from the same directory as this module
   HMODULE hModule = nullptr;
   char modulePath[MAX_PATH] = {0};
@@ -2457,6 +2457,7 @@ HMODULE load_librime() {
   if (handle) return handle;
   handle = DLO("librime.dll");
   return nullptr;
+}
 #else
 static void* load_librime() {
   void* handle = nullptr;
@@ -2469,8 +2470,8 @@ static void* load_librime() {
   if (!handle)
     handle = DLO(LIBNAME);
   return handle;
-#endif
 }
+#endif
 
 static void get_api() {
   if (rime_api) return;
