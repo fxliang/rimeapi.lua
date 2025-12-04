@@ -22,7 +22,9 @@ else
 end
 rime_api:setup(traits)
 print('rime_api:setup passed')
-rime_api:set_notification_handler(nil)
+rime_api:set_notification_handler(function(_, id, t, v)
+  print(string.format('lua > [%s] %s %s', tostring(id), tostring(t), tostring(v)))
+end)
 print('rime_api:set_notification_handler passed')
 rime_api:initialize(traits)
 print('rime_api:initialize passed')
@@ -35,6 +37,7 @@ if rime_api:start_maintenance(true) then
   print('rime_api:is_maintenance_mode passed: ')
 end
 
+rime_api:drain_notifications()
 ----------------------------------------------------------------
 local session = rime_api:create_session()
 assert(session ~= 0)
@@ -60,15 +63,18 @@ print('rime_api:cleanup_all_sessions passed')
 session = rime_api:create_session()
 session2 = nil
 assert(session ~= 0)
+rime_api:drain_notifications()
 ---------------------------------------------------------------
 -- test for get/select schema
 assert(rime_api:select_schema(session, "luna_pinyin") ~= nil)
 print('rime_api:select_schema passed')
+--rime_api:drain_notifications()
 assert(rime_api:get_current_schema(session) == "luna_pinyin")
 print('rime_api:get_current_schema passed: ')
 ----------------------------------------------------------------
 -- test for process_key press a
 assert(rime_api:process_key(session, 0x61, 0) == true)
+rime_api:drain_notifications()
 print('rime_api:process_key passed')
 local context = RimeContext()
 assert(context ~= nil)
@@ -214,10 +220,12 @@ assert(rime_api:free_context(context) == true)
 print('rime_api:free_context passed')
 ----------------------------------------------------------------
 assert(rime_api:set_option(session, "ascii_mode", true) == nil)
+rime_api:drain_notifications()
 print('rime_api:set_option passed')
 assert(rime_api:get_option(session, "ascii_mode") == true)
 print('rime_api:get_option passed')
 assert(rime_api:set_property(session, "api_test_property", "test_value") == nil)
+rime_api:drain_notifications()
 assert(rime_api:get_property(session, "api_test_property", 256) == "test_value")
 assert(rime_api:get_property(session, "api_test_property") == "test_value")
 print('rime_api:set_property and rime_api:get_property passed')
@@ -245,6 +253,7 @@ print('rime_api:prebuild passed')
 assert(rime_api:deploy() == true)
 print('rime_api:deploy passed')
 assert(rime_api:deploy_schema("./shared/luna_pinyin.schema.yaml") == true) -- with file path
+rime_api:drain_notifications()
 print('rime_api:deploy_schema passed')
 assert(rime_api:deploy_config_file("api_test", "0.1") == true) -- with config id only
 print('rime_api:deploy_config_file passed')
@@ -453,6 +462,7 @@ print('rime_api:deployer_initialize passed')
 assert(rime_api:sync_user_data() == true)
 print('rime_api:sync_user_data passed')
 rime_api:finalize()
+rime_api:drain_notifications()
 print('rime_api:finalize passed')
 rime_api = nil
 traits = nil

@@ -236,7 +236,6 @@ static T* smart_shared_ptr_todata(lua_State *L, int index = 1) {
 // Lua userdata wrapper for RimeSessionId so session is destroyed on GC.
 struct RimeSessionStruct { RimeSessionId id{0}; };
 static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
-  if (!id) { lua_pushnil(L); return; }
   void *u = lua_newuserdata(L, sizeof(RimeSessionStruct));
   RimeSessionStruct *s = new(u) RimeSessionStruct();
   s->id = id;
@@ -245,15 +244,23 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
     if (lua_isnil(L, -1)) {
       lua_pop(L, 1);
       luaL_newmetatable(L, "RimeSession");
+      // push a __tostring function
       lua_pushcfunction(L, [](lua_State *L)->int {
           RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, "RimeSession");
-          if (s && s->id) {
-            if (auto api = RIMEAPI) api->destroy_session(s->id);
-            s->id = 0;
+          if (s) {
+            char buf[32];
+            auto format = sizeof(void*) == 4 ? ("%08X") : ("%016llX");
+            snprintf(buf, sizeof(buf), format, (RimeSessionId)s->id);
+            if (buf[0])
+              lua_pushstring(L, buf);
+            else
+              lua_pushstring(L, "RimeSession(nil)");
+          } else {
+            lua_pushstring(L, "RimeSession(nil)");
           }
-          return 0;
-          });
-      lua_setfield(L, -2, "__gc");
+          return 1;
+        });
+      lua_setfield(L, -2, "__tostring");
       // push a __index function to get id by .id
       lua_pushcfunction(L, [](lua_State *L)->int {
           RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, "RimeSession");
@@ -1104,159 +1111,106 @@ namespace RimeApiReg {
   DECLARE_FUNC_NAME_VAR(get_staging_dir_s)
   DECLARE_FUNC_NAME_VAR(get_sync_dir_s)
 
-  // Thread-safe storage for notification callbacks keyed by context pointer.
-  // Each entry stores the lua_State* where the Lua callback lives and the
-  // registry reference for the function.
-  static std::mutex g_notification_mutex;
-  static std::unordered_map<void*, std::pair<lua_State*, int>> g_notification_map;
-  // Key used to store per-state userdata in registry
-  static const char notification_registry_key_sentinel = 'n';
+  static vector<RimeSessionId> sessionid;
+  static vector<string> msg_type;
+  static vector<string> msg_value;
 
-  // Helper: called when a Lua state is being closed / its userdata GCed.
-  // It will remove all entries in g_notification_map that reference this lua_State.
-  static int notification_state_gc(lua_State *L) {
-    // Find entries with this lua_State and unref them
-    std::lock_guard<std::mutex> lk(g_notification_mutex);
-    for (auto it = g_notification_map.begin(); it != g_notification_map.end(); ) {
-      if (it->second.first == L) {
-        // safe to unref because L is valid here
-        luaL_unref(L, LUA_REGISTRYINDEX, it->second.second);
-        it = g_notification_map.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    return 0;
-  }
-
-  static void store_notification_handler_internal(lua_State *L, void* context, int ref) {
-    std::lock_guard<std::mutex> lk(g_notification_mutex);
-    auto it = g_notification_map.find(context);
-    if (it != g_notification_map.end()) {
-      // unref previous
-      luaL_unref(it->second.first, LUA_REGISTRYINDEX, it->second.second);
-      it->second = {L, ref};
-    } else {
-      g_notification_map.emplace(context, std::make_pair(L, ref));
-    }
-  }
-
-  static void remove_notification_handler_internal(void* context) {
-    std::lock_guard<std::mutex> lk(g_notification_mutex);
-    auto it = g_notification_map.find(context);
-    if (it != g_notification_map.end()) {
-      luaL_unref(it->second.first, LUA_REGISTRYINDEX, it->second.second);
-      g_notification_map.erase(it);
-    }
-  }
-
-  static void clear_all_notification_handlers_internal() {
-    std::lock_guard<std::mutex> lk(g_notification_mutex);
-    for (auto &kv : g_notification_map) {
-      luaL_unref(kv.second.first, LUA_REGISTRYINDEX, kv.second.second);
-    }
-    g_notification_map.clear();
-  }
-
-  // C callback function that bridges to Lua. It looks up the lua_State and
-  // registry ref for the given context object and invokes the stored Lua
-  // callback. Note: calling Lua from arbitrary threads may be unsafe; this
-  // preserves prior behavior but centralizes lifecycle management.
-  static void notification_handler_bridge(void* context_object,
-                                          RimeSessionId session_id,
-                                          const char* message_type,
-                                          const char* message_value) {
-    std::pair<lua_State*, int> entry{nullptr, LUA_NOREF};
+  static std::mutex noti_mutex;
+  static void on_message(void* context_object,
+      RimeSessionId session_id,
+      const char* message_type,
+      const char* message_value) {
+    const std::string message_type_str = message_type ? message_type : "";
+    const std::string message_value_str = message_value ? message_value : "";
     {
-      std::lock_guard<std::mutex> lk(g_notification_mutex);
-      auto it = g_notification_map.find(context_object);
-      if (it != g_notification_map.end()) entry = it->second;
-    }
-    if (entry.first && entry.second != LUA_NOREF) {
-      lua_State *L = entry.first;
-      // push the function
-      lua_rawgeti(L, LUA_REGISTRYINDEX, entry.second);
-      if (!lua_isfunction(L, -1)) {
-        lua_pop(L, 1);
-        return;
-      }
-      // push arguments
-      lua_pushlightuserdata(L, context_object);
-      lua_pushinteger(L, session_id);
-      lua_pushstring(L, message_type);
-      lua_pushstring(L, message_value);
-
-      if (lua_pcall(L, 4, 0, 0) != LUA_OK) {
-        const char* error = lua_tostring(L, -1);
-        fprintf(stderr, "Error in notification handler: %s\n", error);
-        lua_pop(L, 1); // pop error message
-      }
+      std::lock_guard<std::mutex> lock(noti_mutex);
+      sessionid.push_back(session_id);
+      msg_type.push_back(message_type_str);
+      msg_value.push_back(message_value_str);
     }
   }
 
+  int noti_func_ref = LUA_NOREF;
   // Lua wrapper for set_notification_handler
   static int lua_set_notification_handler(lua_State *L) {
     T* api = smart_shared_ptr_todata<T>(L, 1);
+    // cache function on Lua stack index 2
     if (lua_isfunction(L, 2)) {
-      // warning msg
-      printf("warning: set a lua function for librime is somehow unsafe yet!!!\n");
-      // Ensure per-state userdata exists in registry to run GC when state closes
-      lua_pushlightuserdata(L, (void*)&notification_registry_key_sentinel);
-      lua_gettable(L, LUA_REGISTRYINDEX);
-      if (lua_isnil(L, -1)) {
-        lua_pop(L, 1);
-        // create userdata
-        void* u = lua_newuserdata(L, sizeof(void*));
-        *(void**)u = nullptr;
-        // create metatable with __gc
-        if (luaL_newmetatable(L, "__notification_state_mt")) {
-          lua_pushcfunction(L, notification_state_gc);
-          lua_setfield(L, -2, "__gc");
-        }
-        lua_setmetatable(L, -2);
-        // store in registry at key
-        lua_pushlightuserdata(L, (void*)&notification_registry_key_sentinel);
-        lua_pushvalue(L, -2);
-        lua_settable(L, LUA_REGISTRYINDEX);
-        lua_pop(L, 1); // pop the userdata we left on stack
-      } else {
-        lua_pop(L, 1);
+      api->set_notification_handler(on_message, nullptr);
+      // remove previous reference if any
+      if (noti_func_ref != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, noti_func_ref);
+        noti_func_ref = LUA_NOREF;
       }
-
-      // Store the Lua function in registry for this lua_State
-      lua_pushvalue(L, 2); // copy function
-      int ref = luaL_ref(L, LUA_REGISTRYINDEX);
-
-      // Get context object (optional 3rd parameter)
-      void* context = nullptr;
-      if (lua_gettop(L) >= 3) {
-        context = lua_touserdata(L, 3);
-      }
-
-      // register internally
-      store_notification_handler_internal(L, context, ref);
-
-      // Set the notification handler in Rime API (context is passed through)
-      api->set_notification_handler(notification_handler_bridge, context);
-    } else if (lua_isnil(L, 2)) {
-      void* context = nullptr;
-      if (lua_gettop(L) >= 3) {
-        context = lua_touserdata(L, 3);
-      }
-      // Disable notification handler in Rime API for this context
-      api->set_notification_handler(nullptr, nullptr);
-      // remove stored callback (unref)
-      remove_notification_handler_internal(context);
+      lua_pushvalue(L, 2); // copy function to top of stack
+      noti_func_ref = luaL_ref(L, LUA_REGISTRYINDEX); // store reference
     } else {
-      luaL_error(L, "Expected function or nil for notification handler");
+      api->set_notification_handler(nullptr, nullptr);
+      // remove previous reference if any
+      if (noti_func_ref != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, noti_func_ref);
+        noti_func_ref = LUA_NOREF;
+      }
     }
     return 0;
   }
 
-  // Lua-visible cleanup function to clear all stored handlers
-  static int lua_clear_notification_handlers(lua_State *L) {
-    (void)L;
-    clear_all_notification_handlers_internal();
+  static int lua_traceback(lua_State *L) {
+    const char *msg = lua_tostring(L, 1);
+    if (msg) {
+      luaL_traceback(L, L, msg, 1); /* pushes traceback string */
+    } else {
+      if (!lua_isnoneornil(L, 1)) {
+        if (luaL_callmeta(L, 1, "__tostring") && lua_isstring(L, -1)) {
+          /* __tostring pushed result, return it */
+          return 1;
+        }
+      }
+      lua_pushliteral(L, "(error object is not a string)");
+    }
+    return 1;
+  }
+
+  static int drain_notifications(lua_State *L) {
+    std::lock_guard<std::mutex> lock(noti_mutex);
+    if (noti_func_ref != LUA_NOREF && !sessionid.empty()) {
+      T* api = smart_shared_ptr_todata<T>(L);
+      for (size_t i = 0; i < msg_type.size(); ++i) {
+        /* push the callback function from registry */
+        lua_rawgeti(L, LUA_REGISTRYINDEX, noti_func_ref);   /* +1: func */
+        /* push arguments as before */
+        lua_pushnil(L);                                     /* +1: context arg (nil) */
+        RimeSession_pushdata(L, sessionid.at(i));          /* +1: session */
+        lua_pushstring(L, msg_type.at(i).c_str());         /* +1: type */
+        lua_pushstring(L, msg_value.at(i).c_str());        /* +1: value */
+        int nargs = 4;
+        /* prepare error handler: insert it below the function and its args.
+           Lua stack layout before insert: ... func arg1 arg2 arg3 arg4
+           We want: ... errfunc func arg1 arg2 arg3 arg4
+           so that errfunc index = base (for lua_pcall) */
+        int base = lua_gettop(L) - nargs; /* base = index where func sits */
+        /* push error handler (C function) */
+        lua_pushcfunction(L, lua_traceback); /* +1: errfunc */
+        /* move errfunc to position 'base' (below func and args) */
+        lua_insert(L, base);
+        /* call protected with errfunc at index 'base' */
+        if (lua_pcall(L, nargs, 0, base) != LUA_OK) {
+          const char *err = lua_tostring(L, -1);
+          /* err contains traceback produced by lua_traceback */
+          printf("err: %s\n", err ? err : "(error object not a string)");
+          lua_pop(L, 1); /* pop error */
+        }
+        /* remove the error handler from the stack (it was at position 'base') */
+        lua_remove(L, base); /* note: after pcall it may not be present if pcall cleaned it, but lua_remove is safe */
+        /* continue next message */
+      }
+    }
+    msg_type.clear();
+    msg_type.shrink_to_fit();
+    msg_value.clear();
+    msg_value.shrink_to_fit();
+    sessionid.clear();
+    sessionid.shrink_to_fit();
     return 0;
   }
 
@@ -1695,7 +1649,6 @@ namespace RimeApiReg {
   static int raw_make(lua_State *L) {
     auto api_ptr = std::shared_ptr<T>(RIMEAPI,
         [](T* t){
-        clear_all_notification_handlers_internal();
         t->cleanup_all_sessions();
         t->finalize();
         });
@@ -1718,6 +1671,7 @@ namespace RimeApiReg {
     {"initialize", WRAP_API_FUNC(initialize)},
     {"finalize", WRAP_API_FUNC(finalize)},
     {"set_notification_handler", lua_set_notification_handler},
+    {"drain_notifications", drain_notifications},
 
     // Maintenance
     {"start_maintenance", WRAP_API_FUNC(start_maintenance)},

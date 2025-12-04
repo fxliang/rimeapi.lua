@@ -31,7 +31,16 @@ target('rimeapi_lua')
   local file_name = is_plat('windows', 'mingw') and 'rimeapi_lua.dll'
     or (is_plat('macosx') and 'rimeapi_lua.dylib' or 'rimeapi_lua.so')
   set_filename(file_name)
-  add_files('src/*.cpp', 'src/*.c', 'src/*.cc')
+  add_files('src/main.cpp', 'src/*.c', 'src/*.cc')
+  add_rules('copy_after_build', 'common_rules')
+
+target('noti_bridge')
+  set_kind('shared')
+  --set target file name to noti_bridge.so noti_bridge.dylib or noti_bridge.dll
+  local file_name = is_plat('windows', 'mingw') and 'noti_bridge.dll'
+    or (is_plat('macosx') and 'noti_bridge.dylib' or 'noti_bridge.so')
+  set_filename(file_name)
+  add_files('src/noti_bridge.cpp')
   add_rules('copy_after_build', 'common_rules')
 
 -------------------------------------------------------------------------------

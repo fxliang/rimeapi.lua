@@ -300,6 +300,18 @@ ffi.cdef[[
     RimeSessionId id;
   }RimeSession;
   RimeApi* rime_get_api(void);
+  // apis in ffi bridge shared lib
+  size_t drain_notifications(
+    RimeSessionId* session_ids,
+    const char** message_types,
+    const char** message_values,
+    size_t max_messages);
+  int init_bridge(void);
+  void finalize_bridge(void);
+  void free_drain_messages(
+    const char** message_types,
+    const char** message_values,
+    size_t message_count);
 ]]
 
 function to_acp_path(path, cp)
@@ -410,9 +422,37 @@ local safestr = function(s)
   local ok, res = pcall(ffi.string, s)
   if ok then return res else return nil end
 end
+-------------------------------------------------------------------------------
+local function script_path()
+  local fullpath = debug.getinfo(1,"S").source:sub(2)
+  local dirname, filename
+  if package.config:sub(1,1) == '\\' then
+    local dirname_, filename_ = fullpath:match('^(.*\\)([^\\]+)$')
+    if not dirname_ then dirname_ = '.' end
+    if not filename_ then filename_ = fullpath end
+    local command = 'cd ' .. dirname_ .. ' && cd'
+    local p = io.popen(command)
+    fullpath = p and (p:read("*l") .. '\\' .. filename_) or ''
+    if p then p:close() end
+    fullpath = fullpath:gsub('[\n\r]*$','')
+    dirname, filename = fullpath:match('^(.*\\)([^\\]+)$')
+  else
+    local p = io.popen("realpath '"..fullpath.."'", 'r')
+    fullpath = p and p:read('a') or ''
+    if p then p:close() end
+    fullpath = fullpath:gsub('[\n\r]*$','')
+    dirname, filename = fullpath:match('^(.*/)([^/]-)$')
+  end
+  dirname = dirname or ''
+  filename = filename or fullpath
+  return dirname
+end
+local dirname = script_path()
+-------------------------------------------------------------------------------
 --- load librime and get rime api
-local api
-local rime_get_api_func
+local librime, api
+local dlopen, dlsym, get_api_func
+local libnames
 if ffi.os == "Linux" or ffi.os == "OSX" then
   ffi.cdef[[
     void* dlopen(const char *filename, int flag);
@@ -420,28 +460,16 @@ if ffi.os == "Linux" or ffi.os == "OSX" then
     const char* dlerror(void);
     int dlclose(void *handle);
   ]]
+  function set_console_codepage(codepage) end -- noop on linux
   local ok, bit = pcall(require, "bit")  -- LuaJIT bit lib
   local bor = ok and bit.bor or function(a,b) return a + b end
   local RTLD_NOW = 2
   local RTLD_DEEPBIND = ( is_termux or ffi.os == 'OSX' ) and 0 or 0x8
+  dlopen = function(name) return ffi.C.dlopen(name, bor(RTLD_NOW, RTLD_DEEPBIND)) end
+  dlsym = function(handle, symbol) return ffi.C.dlsym(handle, symbol) end
+  get_api_func = function(sym) return ffi.cast("RimeApi* (*)()", sym) end
   local libname = ffi.os == 'OSX' and "librime.dylib" or "librime.so"
-  local fullpath = debug.getinfo(1,"S").source:sub(2)
-  local p = io.popen("realpath '"..fullpath.."'", 'r')
-  fullpath = p and p:read('a') or ''
-  if p then p:close() end
-  fullpath = fullpath:gsub('[\n\r]*$','')
-  local dirname, _ = fullpath:match('^(.*/)([^/]-)$')
-  local handle = ffi.C.dlopen(dirname .. libname, bor(RTLD_NOW, RTLD_DEEPBIND))
-  if handle == nil then handle = ffi.C.dlopen(libname, bor(RTLD_NOW, RTLD_DEEPBIND)) end
-  assert(handle ~= nil, "failed to load " .. libname)
-  local sym = ffi.C.dlsym(handle, "rime_get_api")
-  if sym == nil then
-    local err = ffi.C.dlerror()
-    error("failed to find symbol rime_get_api: " .. (safestr(err) or ''))
-  end
-  rime_get_api_func = ffi.cast("RimeApi* (*)()", sym)
-  api = rime_get_api_func()
-  function set_console_codepage(codepage) end -- noop on linux
+  libnames = { dirname .. libname, libname }
 else
   ffi.cdef[[
     typedef void* HMODULE;
@@ -461,22 +489,46 @@ else
     ffi.C.SetConsoleCP(codepage)
     return orig_cp
   end
-  local librime = ffi.C.LoadLibraryA('rime.dll')
-  if not librime then librime = ffi.C.LoadLibraryA('./rime.dll') end
-  if not librime then librime = ffi.C.LoadLibraryA('librime.dll') end
-  if not librime then librime = ffi.C.LoadLibraryA('./librime.dll') end
-  assert(librime, 'failed to load librime')
-  rime_get_api_func = ffi.cast("RimeApi* (*)()", ffi.C.GetProcAddress(librime, "rime_get_api"))
-  api = rime_get_api_func()
-  if not api then error('failed to get rime api') end
+  dlopen = function(name) return ffi.C.LoadLibraryA(name) end
+  dlsym = function(handle, symbol) return ffi.C.GetProcAddress(handle, symbol) end
+  get_api_func = function(sym) return ffi.cast("RimeApi* (*)()", sym) end
+  libnames = { dirname .. 'rime.dll', dirname..'librime.dll', 'rime.dll','librime.dll' }
 end
-if not api then error('failed to get rime api') end
-
+for _, name in ipairs(libnames) do
+  librime = dlopen(name)
+  if librime ~= nil then break end
+end
+assert(librime ~= nil, "failed to load librime")
+local sym = dlsym(librime, "rime_get_api")
+assert(sym ~= nil, "failed to find symbol rime_get_api")
+local rime_get_api = get_api_func(sym)
+api = rime_get_api()
+assert(api ~= nil, "failed to get rime api")
+-------------------------------------------------------------------------------
+-- use ffi bridge to manage rime notifications
+local function load_bridge_with_gc()
+  local libname = ffi.os == "Windows" and "noti_bridge.dll"
+                or (ffi.os == "OSX" and "noti_bridge.dylib" or "noti_bridge.so")
+  local lib = ffi.load(script_path() .. libname)
+  if not lib then error("Failed to load " .. libname) end
+  local handle_ptr = ffi.new("void*[1]")
+  local gc_callback = function(_) lib.finalize_bridge() end
+  ffi.gc(handle_ptr, gc_callback)
+  return setmetatable({
+    _lib = lib,
+    _gc_guard = handle_ptr  -- avoid handle_ptr GC before program exit
+  }, {
+    __index = function(t, k) return t._lib[k] end,
+    __gc = function(_) end
+  })
+end
+local bridge = load_bridge_with_gc()
+-------------------------------------------------------------------------------
 local function ensure_api()
   if api == nil then
-    if not rime_get_api_func then error('rime_get_api not initialized') end
-    api = rime_get_api_func()
-    if not api then error('failed to get rime api after finalize') end
+    if not rime_get_api then error('rime_get_api not initialized') end
+    api = rime_get_api()
+    assert(api ~= nil, 'failed to get rime api in ensure_api')
   end
   return api
 end
@@ -534,7 +586,7 @@ local function set_config_borrowed(cfg, borrowed)
   else cfg_borrowed_set:erase(cfg._c)
   end
 end
-
+-------------------------------------------------------------------------------
 function RimeTraits()
   local traits = ffi.new('RimeTraits')
   traits.data_size = ffi.sizeof('RimeTraits') - ffi.sizeof('int') -- 只读
@@ -1019,15 +1071,7 @@ function RimeModule()
 end
 
 local MAX_SAFE_INTEGER = 9007199254740991 -- 2^53 - 1
-function RimeSession(session_id, opts)
-  local options = opts
-  if type(session_id) == 'table' and opts == nil then
-    options = session_id
-    session_id = nil
-  end
-
-  local borrowed = (type(options) == 'table' and options.borrowed) or false
-
+function RimeSession(session_id)
   local session = ffi.new("RimeSession")
   if session_id ~= nil then
     if ffi.istype("RimeSessionId", session_id) then
@@ -1052,8 +1096,13 @@ function RimeSession(session_id, opts)
         local id = obj._c.id > MAX_SAFE_INTEGER and ffi.cast("RimeSessionId", obj._c.id) or tonumber(obj._c.id)
         return (PFORMAT:format(id))
       elseif k == 'type' then return 'RimeSession'
-      elseif k == 'borrowed' then return borrowed
       end
+    end,
+    __tostring = function(_)
+      local BIT = jit and ((require('ffi').sizeof('void*') == 8) and 16 or 8) or ((string.packsize('T') == 8) and 16 or 8)
+      local PFORMAT = "%0" .. BIT .. "X"
+      local id = obj._c.id > MAX_SAFE_INTEGER and ffi.cast("RimeSessionId", obj._c.id) or tonumber(obj._c.id)
+      return (PFORMAT:format(id))
     end,
     __newindex = function(_, k, v) error("RimeSession is read-only") end,
     __eq = function(_, other)
@@ -1070,11 +1119,6 @@ function RimeSession(session_id, opts)
     end,
   }
   setmetatable(obj, mt)
-
-  if not borrowed then
-    ffi.gc(obj._c, function(cdata) ensure_api().destroy_session(cdata.id) end)
-  end
-
   return obj
 end
 
@@ -1206,392 +1250,73 @@ function RimeApi()
     end
   end
 
-  local pthread_mutex_defined = false
-
-  local function create_notification_mutex()
-    if ffi.os == "Windows" then
-
-      local storage = ffi.new("CRITICAL_SECTION[1]")
-      ffi.C.InitializeCriticalSection(storage)
-
-      local mutex = { _storage = storage }
-      function mutex.lock()
-        ffi.C.EnterCriticalSection(storage)
-      end
-      function mutex.unlock()
-        ffi.C.LeaveCriticalSection(storage)
-      end
-
-      ffi.gc(storage, function(sec)
-        ffi.C.DeleteCriticalSection(sec)
-      end)
-
-      return mutex
-    else
-      if not pthread_mutex_defined then
-        if ffi.os == "OSX" then
-          ffi.cdef[[
-          typedef struct _opaque_pthread_mutex_t {
-            long __sig;
-            char __opaque[56];
-          } pthread_mutex_t;
-
-          typedef struct _opaque_pthread_mutexattr_t {
-            long __sig;
-            char __opaque[8];
-          } pthread_mutexattr_t;
-          ]]
-        else
-          ffi.cdef[[
-          typedef union {
-            char __size[40];
-            long int __align;
-          } pthread_mutex_t;
-
-          typedef union {
-            char __size[4];
-            long int __align;
-          } pthread_mutexattr_t;
-          ]]
-        end
-
-        ffi.cdef[[
-        int pthread_mutex_init(pthread_mutex_t* mutex, const pthread_mutexattr_t* attr);
-        int pthread_mutex_lock(pthread_mutex_t* mutex);
-        int pthread_mutex_unlock(pthread_mutex_t* mutex);
-        int pthread_mutex_destroy(pthread_mutex_t* mutex);
-        ]]
-
-        pthread_mutex_defined = true
-      end
-
-      local storage = ffi.new("pthread_mutex_t[1]")
-      local rc = ffi.C.pthread_mutex_init(storage, nil)
-      if rc ~= 0 then
-        return nil, rc
-      end
-
-      local mutex = { _storage = storage }
-      function mutex.lock()
-        local err = ffi.C.pthread_mutex_lock(storage)
-        if err ~= 0 then
-          error("pthread_mutex_lock failed: " .. tostring(err))
-        end
-      end
-      function mutex.unlock()
-        local err = ffi.C.pthread_mutex_unlock(storage)
-        if err ~= 0 then
-          error("pthread_mutex_unlock failed: " .. tostring(err))
-        end
-      end
-
-      ffi.gc(storage, function(ptr)
-        ffi.C.pthread_mutex_destroy(ptr)
-      end)
-
-      return mutex
-    end
-  end
-
-  local notification_mutex
-  do
-    local ok, res, err = pcall(create_notification_mutex)
-    if ok and res ~= nil then
-      notification_mutex = res
-    else
-      local stderr = io.stderr
-      if stderr and stderr.write then
-        stderr:write("[rimeapi_ffi] warning: notification mutex unavailable: " .. tostring(err or res) .. "\n")
-      end
-      notification_mutex = nil
-    end
-  end
-
-  local function notification_lock()
-    if notification_mutex and notification_mutex.lock then
-      notification_mutex.lock()
-    end
-  end
-
-  local function notification_unlock()
-    if notification_mutex and notification_mutex.unlock then
-      notification_mutex.unlock()
-    end
-  end
-
-  local notification_entries = {}
-  local notification_entry_counter = 0
-
-  local MAX_NOTIFICATION_QUEUE = 64
-  local MAX_NOTIFICATION_TYPE_LEN = 64
-  local MAX_NOTIFICATION_VALUE_LEN = 1024
-
-  local NotificationContextStruct = ffi.typeof(string.format([[struct {
-    intptr_t entry_id;
-    unsigned int capacity;
-    volatile unsigned int head;
-    volatile unsigned int tail;
-    volatile unsigned int active;
-    struct {
-      uintptr_t session;
-      unsigned int type_len;
-      unsigned int value_len;
-      char msg_type[%d];
-      char msg_value[%d];
-    } events[%d];
-  }]], MAX_NOTIFICATION_TYPE_LEN, MAX_NOTIFICATION_VALUE_LEN, MAX_NOTIFICATION_QUEUE))
-
-  local NotificationContextPtr = ffi.typeof("$*", NotificationContextStruct)
-
-  local notification_callback_c
-
-  local function copy_cstring(dst, src, max_len)
-    if dst == nil or max_len <= 0 then return 0 end
-    local dst_ptr = ffi.cast("unsigned char*", dst)
-    if src == nil or src == ffi.NULL then
-      dst_ptr[0] = 0
-      return 0
-    end
-    local src_ptr = ffi.cast("const unsigned char*", src)
-    local i = 0
-    local limit = max_len - 1
-    while i < limit do
-      local byte = src_ptr[i]
-      if byte == 0 then break end
-      dst_ptr[i] = byte
-      i = i + 1
-    end
-    dst_ptr[i] = 0
-    return i
-  end
-
-  local function notification_queue_advance(index, capacity)
-    index = index + 1
-    if index >= capacity then index = 0 end
-    return index
-  end
-
-  local function cleanup_notification_entry(entry_id)
-    if entry_id == nil then return end
-    local entry = notification_entries[entry_id]
-    if not entry then return end
-    local ctx = entry.ctx
-    local queue_empty = true
-    if ctx ~= nil then
-      queue_empty = (ctx.head == ctx.tail)
-    end
-    if not entry.active and queue_empty then
-      if ctx then ctx.active = 0 end
-      notification_entries[entry_id] = nil
-    end
-  end
-
-  local function get_notification_callback()
-    if notification_callback_c == nil then
-      local function bridge(context_object, session_id, msg_type, msg_value)
-        if context_object == nil or context_object == ffi.NULL then return end
-        local ctx = ffi.cast(NotificationContextPtr, context_object)
-        if ctx == nil then return end
-
-        notification_lock()
-        if ctx.active == 0 then
-          notification_unlock()
-          return
-        end
-
-        local capacity = ctx.capacity
-        if capacity == 0 then capacity = MAX_NOTIFICATION_QUEUE end
-        local head = ctx.head
-        local tail = ctx.tail
-        local next_tail = notification_queue_advance(tail, capacity)
-        if next_tail == head then
-          head = notification_queue_advance(head, capacity)
-          ctx.head = head
-        end
-
-        local event = ctx.events[tail]
-        event.session = ffi.cast("uintptr_t", session_id)
-        event.type_len = copy_cstring(event.msg_type, msg_type, MAX_NOTIFICATION_TYPE_LEN)
-        event.value_len = copy_cstring(event.msg_value, msg_value, MAX_NOTIFICATION_VALUE_LEN)
-
-        ctx.tail = next_tail
-        notification_unlock()
-      end
-
-      notification_callback_c = ffi.cast("RimeNotificationHandler", bridge)
-    end
-    return notification_callback_c
-  end
-
-  local function drain_notification_entry(entry)
-    local ctx = entry.ctx
-    if ctx == nil then return end
-
-    if not entry.active then
-      notification_lock()
-      ctx.head = ctx.tail
-      notification_unlock()
-      cleanup_notification_entry(entry.id)
-      return
-    end
-
-    local capacity = ctx.capacity
-    if capacity == 0 then capacity = MAX_NOTIFICATION_QUEUE end
-
-    while true do
-      notification_lock()
-      local head = ctx.head
-      local tail = ctx.tail
-      if head == tail then
-        notification_unlock()
-        break
-      end
-      local event = ctx.events[head]
-      ctx.head = notification_queue_advance(head, capacity)
-      notification_unlock()
-
-      local session
-      if event.session ~= 0 then
-        local session_id = ffi.cast("RimeSessionId", event.session)
-        local ok, wrapped = pcall(RimeSession, session_id, { borrowed = true })
-        session = (ok and wrapped) and wrapped or session_id
-      else
-        session = 0
-      end
-      local msg_type_str = event.type_len > 0 and ffi.string(event.msg_type, event.type_len) or nil
-      local msg_value_str = event.value_len > 0 and ffi.string(event.msg_value, event.value_len) or nil
-
-      local ok, err = entry.invoker(entry, session, msg_type_str, msg_value_str)
-      if not ok then
-        local stderr = io.stderr
-        if stderr and stderr.write then
-          stderr:write("[rimeapi_ffi] notification handler error: " .. tostring(err) .. "\n")
-        end
-      end
-    end
-
-    if not entry.active then
-      cleanup_notification_entry(entry.id)
-    end
-  end
-
-  local function drain_notifications()
-    for _, entry in pairs(notification_entries) do
-      drain_notification_entry(entry)
-    end
-  end
-  local obj = { _c = ensure_api(), }
+  local obj = { _c = ensure_api(), _notifications_handler = nil}
   local mt = {
     __index = function(_, k)
-      drain_notifications()
       if k == '_notification_entry_id' then
         return rawget(obj, k)
       elseif k == 'setup' then
         return function(_, traits)
           obj._c.setup(traits._c)
-          drain_notifications()
           return nil
         end
       elseif k == 'set_notification_handler' then
         return function(_, handler_func, context_object)
-          if handler_func ~= nil and type(handler_func) ~= 'function' then
-            error("handler_func must be a function or nil")
-          elseif type(handler_func) == 'function' then
-            io.stderr:write('warning: set a lua function for librime is somehow unsafe yet!!!\n')
-          end
-
-          notification_lock()
-          local previous_id = rawget(obj, '_notification_entry_id')
-          if previous_id ~= nil then
-            local prev_entry = notification_entries[previous_id]
-            if prev_entry then
-              prev_entry.active = false
-              if prev_entry.ctx then prev_entry.ctx.active = 0 end
-              cleanup_notification_entry(previous_id)
-            end
-            rawset(obj, '_notification_entry_id', nil)
-          end
-          notification_unlock()
-
-          if handler_func == nil then
-            obj._c.set_notification_handler(nil, nil)
-            drain_notifications()
+          if type(handler_func) ~= 'function' then
+            bridge.finalize_bridge()
+            obj._notifications_handler = nil
             return nil
           end
-
-          local ok, info = pcall(debug.getinfo, handler_func, 'u')
-          local expects_context = not (ok and info and info.nparams == 3)
-
-          local ctx = ffi.new(NotificationContextStruct)
-          ctx.capacity = MAX_NOTIFICATION_QUEUE
-          ctx.head = 0
-          ctx.tail = 0
-          ctx.active = 1
-
-          local effective_context = context_object
-          if effective_context == nil or effective_context == ffi.NULL then
-            effective_context = obj
-          end
-
-          local entry = {
-            handler = handler_func,
-            user_context = context_object,
-            call_context = effective_context,
-            expects_context = expects_context,
-            ctx = ctx,
-            active = true,
-          }
-
-          if expects_context then
-            entry.invoker = function(e, session, msg_type, msg_value)
-              return pcall(e.handler, e.call_context, session, msg_type, msg_value)
+          bridge.init_bridge()
+          obj._notifications_handler = handler_func
+          return nil
+        end
+      elseif k == 'drain_notifications' then
+        return function(_)
+          -- use bridge.drain_notifications to drain notifications
+          local MAX_MESSAGES = 1000
+          local ids = ffi.new("RimeSessionId[?]", MAX_MESSAGES)
+          local types = ffi.new("const char*[?]", MAX_MESSAGES)
+          local values = ffi.new("const char*[?]", MAX_MESSAGES)
+          local count = tonumber(bridge.drain_notifications(ids, types, values, MAX_MESSAGES))
+          if count <= 0 then return nil end
+          -- protected call to notification handler
+          local ok, err = xpcall(function()
+            for i = 0, count - 1 do
+              local session_id = RimeSession(ids[i])
+              local ntype = safestr(types[i]) or ''
+              local nvalue = safestr(values[i]) or ''
+              if type(obj._notifications_handler) == 'function' then
+                local _ok, res = pcall(obj._notifications_handler, nil, session_id, ntype, nvalue)
+                if not _ok then print("Error in notification handler: " .. tostring(res)) end
+              end
             end
-          else
-            entry.invoker = function(e, session, msg_type, msg_value)
-              return pcall(e.handler, session, msg_type, msg_value)
-            end
-          end
-
-          notification_lock()
-          notification_entry_counter = notification_entry_counter + 1
-          local entry_id = notification_entry_counter
-          entry.id = entry_id
-          ctx.entry_id = entry_id
-          notification_entries[entry_id] = entry
-          notification_unlock()
-
-          rawset(obj, '_notification_entry_id', entry_id)
-
-          local callback = get_notification_callback()
-          obj._c.set_notification_handler(callback, ffi.cast("void*", ctx))
-          drain_notifications()
+          end, debug.traceback)
+          -- free drained messages
+          bridge.free_drain_messages(types, values, count)
+          if not ok then print("Error while draining notifications: " .. tostring(err)) end
           return nil
         end
       elseif k == 'is_maintenance_mode' then
         return function() return tonumber(obj._c.is_maintenance_mode()) end
       elseif k == 'start_maintenance' then
         return function(_, full_check)
-          drain_notifications()
           local res = obj._c.start_maintenance(full_check and 1 or 0)
-          drain_notifications()
           return tonumber(res)
         end
       elseif k == 'join_maintenance_thread' then
         return function(_)
           obj._c.join_maintenance_thread()
-          drain_notifications()
           return nil
         end
       elseif k == 'initialize' then
         return function(_, traits)
           obj._c.initialize(traits._c)
-          drain_notifications()
           return nil
         end
       elseif k == 'finalize' then
         return function(_)
           obj._c.finalize()
-          drain_notifications()
           return nil
         end
       elseif k == 'create_session' then
@@ -1650,42 +1375,31 @@ function RimeApi()
       elseif k == 'deployer_initialize' then
         return function(_, traits)
           obj._c.deployer_initialize(traits._c)
-          drain_notifications()
           return nil
         end
       elseif k == 'prebuild' then
         return function(_)
-          drain_notifications()
           local ok = obj._c.prebuild() ~= 0
-          drain_notifications()
           return ok
         end
       elseif k == 'deploy' then
         return function(_)
-          drain_notifications()
           local ok = obj._c.deploy() ~= 0
-          drain_notifications()
           return ok
         end
       elseif k == 'deploy_schema' then
         return function(_, schema_file)
-          drain_notifications()
           local ok = obj._c.deploy_schema(tostring(schema_file)) ~= 0
-          drain_notifications()
           return ok
         end
       elseif k == 'deploy_config_file' then
         return function(_, file_name, version_key)
-          drain_notifications()
           local ok = obj._c.deploy_config_file(tostring(file_name), tostring(version_key)) ~= 0
-          drain_notifications()
           return ok
         end
       elseif k == 'sync_user_data' then
         return function(_)
-          drain_notifications()
           local ok = obj._c.sync_user_data() ~= 0
-          drain_notifications()
           return ok
         end
       elseif k == 'set_option' then
@@ -1925,7 +1639,10 @@ function RimeApi()
         error("RimeApi has no such method: " .. tostring(k))
       end
     end,
-    __newindex = function(_, k, v) error("RimeApi is read-only") end,
+    __newindex = function(_, k, v)
+      if k == '_notifications_handler' then rawset(obj, k, v)
+      else error("RimeApi is read-only") end
+    end,
   }
   setmetatable(obj, mt)
   return obj

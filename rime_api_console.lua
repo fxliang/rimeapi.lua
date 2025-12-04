@@ -67,12 +67,7 @@ local function on_message(_, session, msg_type, msg_value)
   local PFORMAT = "%0" .. BIT .. "X"
   local msg = "lua > message: ["..PFORMAT.."] [%s] %s"
   local session_id = session
-  if type(session) == 'table' and session.id ~= nil then
-    session_id = session.id
-    print(("lua > message: [%s] [%s] %s"):format(session.str, msg_type, msg_value))
-  else
-    print(msg:format(tonumber(session), msg_type, msg_value))
-  end
+  print('lua > [ '.. tostring(session) .. ' ] ' .. msg_type .. ': ' .. msg_value)
   if msg_type == "option" then
     local state = msg_value:sub(1, 1) ~= "!"
     local option_name = state and msg_value or msg_value:sub(2)
@@ -116,6 +111,7 @@ local function init()
   if api:start_maintenance(true) then
     api:join_maintenance_thread()
   end
+  api:drain_notifications()
 end
 --- print status info
 --- @param status RimeStatus
@@ -282,6 +278,7 @@ local function main()
     print("Failed to select schema luna_pinyin")
   end
   local str = api:get_current_schema(session_id, 256)
+  api:drain_notifications()
   if not str then
     print("Failed to get current schema")
   else
@@ -313,12 +310,16 @@ local function main()
         session_id_alive = false
         api:finalize()
         input = ""
-        main()
+        api:drain_notifications()
+        -- reload current file
+        dofile(debug.getinfo(1,'S').source:sub(2))
+        continue = false
       end
       if not execute_special_command(session_id, input) then
         if api:simulate_key_sequence(session_id, input) then print_session(session_id) end
       end
     end
+    api:drain_notifications()
   end
   if session_id_alive then
     print("distroying session..." .. session_id.str)
