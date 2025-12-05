@@ -1251,6 +1251,15 @@ function RimeApi()
   end
 
   local obj = { _c = ensure_api(), _notifications_handler = nil}
+  -- add ffi.gc to drain notifications on gc
+  ffi.gc(obj._c, function(_)
+    local ok, err = pcall(function()
+      obj:set_notification_handler(nil, nil)
+      obj:cleanup_all_sessions()
+      obj:finalize()
+    end, debug.traceback)
+    if not ok then print("Error while finalizing bridge: " .. tostring(err)) end
+  end)
   local mt = {
     __index = function(_, k)
       if k == '_notification_entry_id' then
@@ -1263,7 +1272,11 @@ function RimeApi()
       elseif k == 'set_notification_handler' then
         return function(_, handler_func, context_object)
           if type(handler_func) ~= 'function' then
-            bridge.finalize_bridge()
+            local ok, err = xpcall(function()
+              obj:drain_notifications()
+              bridge.finalize_bridge()
+            end, debug.traceback)
+            if not ok then print("Error while finalizing bridge: " .. tostring(err)) end
             obj._notifications_handler = nil
             return nil
           end
