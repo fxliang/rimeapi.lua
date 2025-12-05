@@ -306,7 +306,7 @@ local function main()
         break
       elseif input == "reload" then
         api:destroy_session(session_id)
-        print("distroying session..." .. string.format("0x%x", session_id.id))
+        print("distroying session..." .. tostring(session_id))
         session_id_alive = false
         api:finalize()
         input = ""
