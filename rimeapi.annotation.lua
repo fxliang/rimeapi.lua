@@ -229,6 +229,7 @@
 ---@field highlight_candidate fun(self: self, session: RimeSession|integer, index: integer): boolean -- index shall be 0 base
 ---@field highlight_candidate_on_current_page fun(self: self, session: RimeSession|integer, index: integer): boolean -- index shall be 0 base
 ---@field change_page fun(self: self, session: RimeSession|integer, backward: boolean): boolean
+---@field drain_notifications fun(self: self): nil drain all pending notifications
 ---@field type string
 
 ---@class RimeCustomSettings
