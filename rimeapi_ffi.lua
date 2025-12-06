@@ -446,8 +446,8 @@ end
 local dirname = script_path()
 -------------------------------------------------------------------------------
 --- load librime and get rime api
-local librime, api
-local dlopen, dlsym, get_api_func
+__librime__ = nil
+local api, dlopen, dlclose, dlsym, get_api_func
 local libnames
 if ffi.os == "Linux" or ffi.os == "OSX" then
   ffi.cdef[[
@@ -462,6 +462,7 @@ if ffi.os == "Linux" or ffi.os == "OSX" then
   local RTLD_NOW = 2
   local RTLD_DEEPBIND = ( is_termux or ffi.os == 'OSX' ) and 0 or 0x8
   dlopen = function(name) return ffi.C.dlopen(name, bor(RTLD_NOW, RTLD_DEEPBIND)) end
+  dlclose = function(h) return ffi.C.dlclose(h) end
   dlsym = function(handle, symbol) return ffi.C.dlsym(handle, symbol) end
   get_api_func = function(sym) return ffi.cast("RimeApi* (*)()", sym) end
   local libname = ffi.os == 'OSX' and "librime.dylib" or "librime.so"
@@ -477,6 +478,7 @@ else
     unsigned int GetConsoleOutputCP();
     HMODULE LoadLibraryA(LPCSTR lpLibFileName);
     HANDLE GetProcAddress(HMODULE hModule, LPCSTR lpProcName);
+    int FreeLibrary(HMODULE hModule);
   ]]
   function set_console_codepage(codepage)
     if codepage == nil then codepage = 65001 end -- UTF-8
@@ -486,23 +488,25 @@ else
     return orig_cp
   end
   dlopen = function(name) return ffi.C.LoadLibraryA(name) end
+  dlclose = function(h) return ffi.C.FreeLibrary(h) end
   dlsym = function(handle, symbol) return ffi.C.GetProcAddress(handle, symbol) end
   get_api_func = function(sym) return ffi.cast("RimeApi* (*)()", sym) end
   libnames = { dirname .. 'rime.dll', dirname..'librime.dll', 'rime.dll','librime.dll' }
 end
 for _, name in ipairs(libnames) do
-  librime = dlopen(name)
-  if librime ~= nil then break end
+  __librime__ = dlopen(name)
+  if __librime__ ~= nil then break end
 end
-assert(librime ~= nil, "failed to load librime")
-local sym = dlsym(librime, "rime_get_api")
+assert(__librime__ ~= nil, "failed to load librime")
+ffi.gc(__librime__, function(lib) dlclose(lib) end)
+local sym = dlsym(__librime__, "rime_get_api")
 assert(sym ~= nil, "failed to find symbol rime_get_api")
 local rime_get_api = get_api_func(sym)
 api = rime_get_api()
 assert(api ~= nil, "failed to get rime api")
 -------------------------------------------------------------------------------
 -- use ffi bridge to manage rime notifications
-local function load_bridge_with_gc()
+local function NotificationBridge()
   local libname = ffi.os == "Windows" and "noti_bridge.dll"
                 or (ffi.os == "OSX" and "noti_bridge.dylib" or "noti_bridge.so")
   local lib = ffi.load(script_path() .. libname)
@@ -518,7 +522,7 @@ local function load_bridge_with_gc()
     __gc = function(_) end
   })
 end
-local bridge = load_bridge_with_gc()
+local bridge = NotificationBridge()
 -------------------------------------------------------------------------------
 local function ensure_api()
   if api == nil then
