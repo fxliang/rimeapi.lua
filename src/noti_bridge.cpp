@@ -2,7 +2,6 @@
 #include <filesystem>
 #include <vector>
 #include <mutex>
-#include <cstring>
 
 namespace fs = std::filesystem;
 
@@ -13,9 +12,6 @@ static HMODULE librime;
 #define DLO(x) LoadLibraryA(x)
 #define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(GetProcAddress(handle, "rime_get_api"))
 #define CLEAR_RIME_ERROR() ((void)0)
-#ifdef _MSC_VER
-#define strdup(x) _strdup(x)
-#endif
 
 static HMODULE load_librime() {
   // default load the librime dll from the same directory as this module
@@ -38,39 +34,6 @@ static HMODULE load_librime() {
   handle = DLO("librime.dll");
   return handle;
 }
-
-inline std::wstring string_to_wstring(const std::string& str,
-    int code_page = CP_ACP) {
-  // support CP_ACP and CP_UTF8 only
-  if (code_page != 0 && code_page != CP_UTF8) return L"";
-  // calc len
-  int len = MultiByteToWideChar(code_page, 0, str.c_str(), (int)str.size(), NULL, 0);
-  if (len <= 0) return L"";
-  std::wstring res;
-  wchar_t* buffer = new wchar_t[len + 1];
-  MultiByteToWideChar(code_page, 0, str.c_str(), (int)str.size(), buffer, len);
-  buffer[len] = L'\0';
-  res.append(buffer);
-  delete[] buffer;
-  return res;
-}
-
-inline std::string wstring_to_string(const std::wstring& wstr,
-    int code_page = CP_ACP) {
-  // support CP_ACP and CP_UTF8 only
-  if (code_page != 0 && code_page != CP_UTF8) return "";
-  int len = WideCharToMultiByte(code_page, 0, wstr.c_str(), (int)wstr.size(), NULL, 0, NULL, NULL);
-  if (len <= 0) return "";
-  std::string res;
-  char* buffer = new char[len + 1];
-  WideCharToMultiByte(code_page, 0, wstr.c_str(), (int)wstr.size(), buffer, len, NULL, NULL);
-  buffer[len] = '\0';
-  res.append(buffer);
-  delete[] buffer;
-  return res;
-}
-
-#define TO_ASCII_STR(str) wstring_to_string(string_to_wstring(str, CP_UTF8), CP_ACP)
 
 #else /* Linux or Mac */
 
@@ -97,7 +60,6 @@ static void* load_librime() {
     handle = DLO(LIBNAME);
   return handle;
 }
-#define TO_ASCII_STR(str) (str)
 #endif
 
 typedef RIME_FLAVORED(RimeApi) *(*RimeGetApi)(void);
@@ -131,14 +93,15 @@ typedef struct {
 } RimeNotificationMsg;
 
 static std::vector<RimeNotificationMsg> msg_queue;
+static std::vector<RimeNotificationMsg> lua_queue;
 static std::mutex noti_mutex;
 
 static void on_message(void* context_object,
     RimeSessionId session_id,
     const char* msg_type,
     const char* msg_value) {
-  const std::string type = TO_ASCII_STR(msg_type ? msg_type : "");
-  const std::string value = TO_ASCII_STR(msg_value ? msg_value : "");
+  const std::string type = std::string(msg_type ? msg_type : "");
+  const std::string value = std::string(msg_value ? msg_value : "");
   {
     std::lock_guard<std::mutex> lock(noti_mutex);
     msg_queue.push_back({session_id, type, value});
@@ -151,26 +114,19 @@ extern "C" {
       const char** message_types,
       const char** message_values,
       size_t max_messages) {
-    std::lock_guard<std::mutex> lock(noti_mutex);
-    size_t count = (msg_queue.size() < max_messages) ? msg_queue.size() : max_messages;
-    for (size_t i = 0; i < count; i++) {
-      session_ids[i] = msg_queue[i].id;
-      message_types[i] = strdup(msg_queue[i].type.c_str());
-      message_values[i] = strdup(msg_queue[i].value.c_str());
+    size_t count = 0;
+    {
+      std::lock_guard<std::mutex> lock(noti_mutex);
+      lua_queue = msg_queue;
+      count = (msg_queue.size() < max_messages) ? msg_queue.size() : max_messages;
+      std::vector<RimeNotificationMsg>().swap(msg_queue); // clear the queue
     }
-    msg_queue.clear();
-    msg_queue.shrink_to_fit();
+    for (size_t i = 0; i < count; i++) {
+      session_ids[i] = lua_queue[i].id;
+      message_types[i] = lua_queue[i].type.c_str();
+      message_values[i] = lua_queue[i].value.c_str();
+    }
     return count;
-  }
-
-  RIME_API void free_drain_messages(
-      const char** message_types,
-      const char** message_values,
-      size_t count) {
-    for (size_t i = 0; i < count; i++) {
-      if (message_types[i]) free((void*)message_types[i]);
-      if (message_values[i]) free((void*)message_values[i]);
-    }
   }
 
   RIME_API int init_bridge() {
@@ -185,7 +141,8 @@ extern "C" {
     get_api();
     if (!rime_api) return;
     rime_api->set_notification_handler(nullptr, nullptr);
+    std::vector<RimeNotificationMsg>().swap(lua_queue); // clear the lua queue
     std::lock_guard<std::mutex> lock(noti_mutex);
-    msg_queue.clear();
+    std::vector<RimeNotificationMsg>().swap(msg_queue); // clear the queue
   }
 }

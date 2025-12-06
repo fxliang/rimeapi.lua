@@ -308,10 +308,6 @@ ffi.cdef[[
     size_t max_messages);
   int init_bridge(void);
   void finalize_bridge(void);
-  void free_drain_messages(
-    const char** message_types,
-    const char** message_values,
-    size_t message_count);
 ]]
 
 function to_acp_path(path, cp)
@@ -1305,8 +1301,6 @@ function RimeApi()
               end
             end
           end, debug.traceback)
-          -- free drained messages
-          bridge.free_drain_messages(types, values, count)
           if not ok then print("Error while draining notifications: " .. tostring(err)) end
           return nil
         end
