@@ -21,6 +21,10 @@ To build the shared library, xmake is required. Follow these steps(or follow wor
   - `rimeapi_lua.so`: for linux
   - `rimeapi_lua.dylib`: for macos
   - `rimeapi_lua.dll`: for windows
+- shared library for luajit binding
+  - `noti_bridge.so`: for linux
+  - `noti_bridge.dylib`: for macos
+  - `noti_bridge.dll`: for windows
 - `scripts/api_test.lua`: a rime api test script
 - `scripts/levers_api_test.lua`: a rime levers api test script
 - `shared`: base yamls from `librime` project, and a yaml `api_test.yaml`
