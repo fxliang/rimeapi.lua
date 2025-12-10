@@ -1,38 +1,10 @@
 #include "lua_export_type.h"
-#include <rime_api.h>
-#include <rime_levers_api.h>
+#include "utils.h"
 #include <cstring>
-#include <assert.h>
-#include <mutex>
-#include <filesystem>
 #include <unordered_set>
-#include <iostream>
 #ifdef __GNUC__
 #include <cxxabi.h>
 #endif
-#ifdef _WIN32
-#include <windows.h>
-inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = CP_UTF8) {
-  unsigned int cp = GetConsoleOutputCP();
-  SetConsoleOutputCP(codepage);
-  SetConsoleCP(codepage);
-  return cp;
-}
-HMODULE librime;
-#else
-#include <dlfcn.h>
-void *librime;
-inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) { return 0; }
-#endif /* _WIN32 */
-
-using namespace std;
-namespace fs = std::filesystem;
-
-typedef RIME_FLAVORED(RimeApi) *(*RimeGetApi)(void);
-RimeApi* rime_api = nullptr;
-
-#define RIMELEVERSAPI ((RimeLeversApi*)rime_api->find_module("levers")->get_api())
-#define RIMEAPI rime_api
 
 static std::unordered_set<RimeConfig*> cfg_borrowed_set;
 static std::unordered_set<RimeSchemaList*> schemalist_borrowed_set;
@@ -233,7 +205,7 @@ static T* smart_shared_ptr_todata(lua_State *L, int index = 1) {
   return nullptr;
 }
 
-// Lua userdata wrapper for RimeSessionId so session is destroyed on GC.
+// Lua userdata wrapper for RimeSessionId
 struct RimeSessionStruct { RimeSessionId id{0}; };
 static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
   void *u = lua_newuserdata(L, sizeof(RimeSessionStruct));
@@ -2234,7 +2206,7 @@ static int os_trymkdir(lua_State* L) {
     lua_pushboolean(L, true);
     return 1;
   }
-#ifdef WIN32
+#ifdef _WIN32
   unsigned int codepage = 65001; // UTF-8
   if (lua_gettop(L) > 1) {
     codepage = (unsigned int)luaL_checkinteger(L, 2);
@@ -2264,7 +2236,7 @@ static const fs::path get_path_from_lua(lua_State* L, int index) {
   const char* path = luaL_checkstring(L, index);
   if (!path)
     return fs::path();
-#ifdef WIN32
+#ifdef _WIN32
   unsigned int cp = (lua_gettop(L) > 1) ? (unsigned int)luaL_checkinteger(L, 2) : CP_UTF8;
   int len = MultiByteToWideChar(cp, 0, path, -1, nullptr, 0);
   if (len <= 0)
@@ -2300,7 +2272,7 @@ static int to_acp_path(lua_State* L) {
 }
 
 static int set_console_color(lua_State* L) {
-#ifdef WIN32
+#ifdef _WIN32
   unsigned short attributes = (unsigned short)luaL_checkinteger(L, 1);
   HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
   if (hConsole)
@@ -2353,7 +2325,7 @@ static void register_rime_bindings(lua_State *L) {
     lua_pushcfunction(L, os_isdir);
     lua_setfield(L, -2, "isdir");
   }
-#ifdef WIN32
+#ifdef _WIN32
   const auto set_codepage = +[](lua_State* L) -> int {
     int cp = (!lua_gettop(L)) ? CP_UTF8 : luaL_checkinteger(L, 1);
     int ret = SetConsoleOutputCodePage(cp);
@@ -2372,80 +2344,6 @@ static void register_rime_bindings(lua_State *L) {
   REGISTER_GLOBAL_FUNC("set_console_color", set_console_color);
   REGISTER_GLOBAL_FUNC("resolve_path", resolve_path);
 #undef REGISTER_GLOBAL_FUNC
-}
-
-#ifdef WIN32
-#define FREE_RIME() do { if (librime) { FreeLibrary(librime); librime = nullptr; } } while(0)
-#define DLO(x) LoadLibraryA(x)
-#define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(GetProcAddress(handle, "rime_get_api"))
-#define CLEAR_RIME_ERROR() ((void)0)
-#else
-#if defined(__APPLE__) || defined(__MACH__)
-#define LIBNAME "librime.dylib"
-#else
-#define LIBNAME "librime.so"
-#endif
-#define FREE_RIME() do { if (librime) { dlclose(librime); librime = nullptr; } } while(0)
-#define DLO(x) dlopen(x, RTLD_LAZY | RTLD_LOCAL| RTLD_DEEPBIND)
-#define LOAD_RIME_FUNCTION(handle) reinterpret_cast<RimeGetApi>(dlsym(handle, "rime_get_api"))
-#define CLEAR_RIME_ERROR() ((void)dlerror())
-#endif
-
-#ifdef WIN32
-static HMODULE load_librime() {
-  // default load the librime dll from the same directory as this module
-  HMODULE hModule = nullptr;
-  char modulePath[MAX_PATH] = {0};
-  if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                         (LPCSTR)&load_librime, &hModule)) {
-    GetModuleFileNameA(hModule, modulePath, MAX_PATH);
-    fs::path moduleDir = fs::path(modulePath).parent_path();
-    fs::path rimePath = moduleDir / "rime.dll";
-    HMODULE handle = DLO(rimePath.string().c_str());
-    if (handle) return handle;
-    rimePath = moduleDir / "librime.dll";
-    handle = DLO(rimePath.string().c_str());
-    if (handle) return handle;
-  }
-  HMODULE handle = DLO("rime.dll");
-  if (handle) return handle;
-  handle = DLO("librime.dll");
-  return nullptr;
-}
-#else
-static void* load_librime() {
-  void* handle = nullptr;
-  Dl_info dl_info;
-  if (dladdr((void*)&load_librime, &dl_info) == 0)
-    return nullptr;
-  const fs::path modulePath = fs::path(dl_info.dli_fname).parent_path();
-  const fs::path rimePath = modulePath / LIBNAME;
-  handle = DLO(rimePath.string().c_str());
-  if (!handle)
-    handle = DLO(LIBNAME);
-  return handle;
-}
-#endif
-
-static void get_api() {
-  if (rime_api) return;
-  librime = load_librime();
-  if (!librime) {
-    fprintf(stderr, "Error: failed to load librime\n");
-    return;
-  }
-  CLEAR_RIME_ERROR();
-  RimeGetApi loader = LOAD_RIME_FUNCTION(librime);
-  if (!loader) {
-    fprintf(stderr, "Error: failed to find rime_get_api in librime\n");
-    FREE_RIME();
-    return;
-  }
-  rime_api = loader();
-  if (!rime_api) {
-    fprintf(stderr, "Error: rime_get_api returned null from librime\n");
-    FREE_RIME();
-  }
 }
 
 static void ensure_librime_gc(lua_State* L) {
@@ -2469,7 +2367,7 @@ static void ensure_librime_gc(lua_State* L) {
   lua_setfield(L, LUA_REGISTRYINDEX, "__rime_library_gc");
 }
 extern "C" RIME_API int luaopen_rimeapi_lua(lua_State *L) {
-  get_api();
+  ensure_rime_api();
   register_rime_bindings(L);
   ensure_librime_gc(L);
   // Create and return a module table that references main constructors

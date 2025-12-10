@@ -58,8 +58,8 @@ rule('common_rules')
         target:add('cxflags', '/utf-8')
         target:add('cflags', '/utf-8')
       else
-        target:add('ldflags', '-static-libgcc -static-libstdc++ -static')
-        target:add('shflags', '-static-libgcc -static-libstdc++ -static')
+        target:add('ldflags', '-static-libgcc -static-libstdc++ -static', {force = true})
+        target:add('shflags', '-static-libgcc -static-libstdc++ -static', {force = true})
       end
     else
       if is_plat('macosx') then
