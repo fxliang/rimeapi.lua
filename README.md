@@ -15,7 +15,7 @@ To build the shared library, xmake is required. Follow these steps(or follow wor
 
 ## Files Description
 
-- `rimeapi.lua`: a lua module for automatically loading shared library or ffi module, for lua/luajit
+- `rimeapi.lua`: a lua module for automatically loading shared library or ffi module, for lua(>=5.4)/luajit
 - `rimeapi_ffi.lua`: a luajit ffi binding module just like `rimeapi_lua.so`/`rimeapi_lua.dll`/`rimeapi_lua.dylib`
 - shared libraries for lua binding:
   - `rimeapi_lua.so`: for linux
@@ -28,7 +28,7 @@ To build the shared library, xmake is required. Follow these steps(or follow wor
 - `scripts/api_test.lua`: a rime api test script
 - `scripts/levers_api_test.lua`: a rime levers api test script
 - `shared`: base yamls from `librime` project, and a yaml `api_test.yaml`
-- `rimeapi.app.lua`: a lua/luajit script, work as a REPL when no extra args passed, or run test scripts when args passed
+- `rimeapi.app.lua`: a lua(>=5.4)/luajit script, work as a REPL when no extra args passed, or run test scripts when args passed
 - `rime_api_console.lua`: a lua script to work like `rime_api_console` of `librime`
 - `get-rime.ps1`: a powershell script tool for getting `librime` for windows/macos
 - `schema_tester.lua`: a lua script demo for testing rime schema

@@ -25,7 +25,7 @@ local function script_path()
     dirname, filename = fullpath:match('^(.*\\)([^\\]+)$')
   else
     local p = io.popen("realpath '"..fullpath.."'", 'r')
-    fullpath = p and p:read('a') or ''
+    fullpath = p and p:read('*a') or ''
     if p then p:close() end
     fullpath = fullpath:gsub('[\n\r]*$','')
     dirname, filename = fullpath:match('^(.*/)([^/]-)$')

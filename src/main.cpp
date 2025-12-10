@@ -2367,6 +2367,17 @@ static void ensure_librime_gc(lua_State* L) {
   lua_setfield(L, LUA_REGISTRYINDEX, "__rime_library_gc");
 }
 extern "C" RIME_API int luaopen_rimeapi_lua(lua_State *L) {
+// check lua version 5.4
+#if LUA_VERSION_NUM >= 503
+  const lua_Number ver = lua_version(L);
+  const lua_Number runtime = ver ? ver : 0;
+#else
+  const lua_Number runtime = lua_version(L);
+#endif
+  if (runtime < 504) {
+    luaL_error(L, "rimeapi_lua requires Lua 5.4 or higher");
+    return 0;
+  }
   ensure_rime_api();
   register_rime_bindings(L);
   ensure_librime_gc(L);
