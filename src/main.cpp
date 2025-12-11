@@ -1177,12 +1177,9 @@ namespace RimeApiReg {
         /* continue next message */
       }
     }
-    msg_type.clear();
-    msg_type.shrink_to_fit();
-    msg_value.clear();
-    msg_value.shrink_to_fit();
-    sessionid.clear();
-    sessionid.shrink_to_fit();
+    std::vector<std::string>().swap(msg_type);
+    std::vector<std::string>().swap(msg_value);
+    std::vector<RimeSessionId>().swap(sessionid);
     return 0;
   }
 
