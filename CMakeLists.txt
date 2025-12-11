@@ -125,6 +125,14 @@ elseif(NOT MSVC)
 endif()
 apply_common_settings(rimeapi_lua LINK_LUA)
 
+add_library(noti_bridge SHARED src/noti_bridge.cpp)
+apply_common_settings(noti_bridge)
+if(NOT WIN32)
+  set_target_properties(noti_bridge PROPERTIES PREFIX "")
+elseif(NOT MSVC)
+  set_target_properties(noti_bridge PROPERTIES PREFIX "")
+endif()
+
 if(WIN32)
   if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(RIME_DLL_PATH "${CMAKE_SOURCE_DIR}/lib64/rime.dll")
@@ -136,6 +144,10 @@ endif()
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}" CACHE PATH "Install path prefix" FORCE)
 endif()
+
+install (TARGETS noti_bridge
+  LIBRARY DESTINATION .
+  RUNTIME DESTINATION .)
 
 install(TARGETS lua
   RUNTIME DESTINATION .)
