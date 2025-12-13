@@ -90,12 +90,15 @@ jobs:
           cp ./noti_bridge.dylib ./dist/
           cp ./lua ./dist/
 
+      - name: tar artifact
+        run: tar czf rimeapi.lua-macos-dist.tar.gz ./dist/
+
       - name: upload artifact
         if: matrix.maker == 'xmake'
         uses: actions/upload-artifact@v5
         with:
-          name: rimeapi.lua-macos-dist
-          path: ./dist/
+          name: rimeapi.lua-macos-dist.tar.gz
+          path: rimeapi.lua-macos-dist.tar.gz
 
   build-ubuntu:
     runs-on: ubuntu-24.04
@@ -200,12 +203,15 @@ jobs:
           cp ./librime.so ./dist/
           cp ./lua ./dist/
 
+      - name: tar artifact
+        run: tar czf rimeapi.lua-ubuntu24.04-dist.tar.gz ./dist/
+
       - name: upload artifact
         if: matrix.maker == 'xmake'
         uses: actions/upload-artifact@v5
         with:
-          name: rimeapi.lua-ubuntu24.04-dist
-          path: ./dist/
+          name: rimeapi.lua-ubuntu24.04-dist.tar.gz
+          path: rimeapi.lua-ubuntu24.04-dist.tar.gz
 
   build-windows:
     runs-on: windows-latest
@@ -309,12 +315,15 @@ jobs:
           cp ./noti_bridge.dll ./dist/
           cp ./lua.exe ./dist/
 
+      - name: zip artifact
+        run: 7z a -tzip rimeapi.lua-win${{ matrix.arch }}-dist.zip .\dist\*
+
       - name: upload artifact
         if: matrix.maker == 'xmake'
         uses: actions/upload-artifact@v5
         with:
-          name: rimeapi.lua-win${{ matrix.arch }}-dist
-          path: ./dist/
+          name: rimeapi.lua-win${{ matrix.arch }}-dist.zip
+          path: rimeapi.lua-win${{ matrix.arch }}-dist.zip
 
   latest-release:
     if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
@@ -324,34 +333,26 @@ jobs:
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
         with:
-          name: rimeapi.lua-macos-dist
-          path: ./artifacts/rimeapi.lua-macos-dist
+          name: rimeapi.lua-macos-dist.tar.gz
+          path: ./artifacts/
 
       - name: Download Windows x64 artifact
         uses: actions/download-artifact@v4
         with:
-          name: rimeapi.lua-winx64-dist
-          path: ./artifacts/rimeapi.lua-winx64-dist
+          name: rimeapi.lua-winx64-dist.zip
+          path: ./artifacts/
 
       - name: Download Windows x86 artifact
         uses: actions/download-artifact@v4
         with:
-          name: rimeapi.lua-winx86-dist
-          path: ./artifacts/rimeapi.lua-winx86-dist
+          name: rimeapi.lua-winx86-dist.zip
+          path: ./artifacts/
 
       - name: Download Ubuntu 24.04 artifact
         uses: actions/download-artifact@v4
         with:
-          name: rimeapi.lua-ubuntu24.04-dist
-          path: ./artifacts/rimeapi.lua-ubuntu24.04-dist
-
-      - name: Compress zips
-        run: |
-          cd ./artifacts
-          zip -r rimeapi.lua-macos-dist.zip rimeapi.lua-macos-dist
-          zip -r rimeapi.lua-winx64-dist.zip rimeapi.lua-winx64-dist
-          zip -r rimeapi.lua-winx86-dist.zip rimeapi.lua-winx86-dist
-          zip -r rimeapi.lua-ubuntu24.04-dist.zip rimeapi.lua-ubuntu24.04-dist
+          name: rimeapi.lua-ubuntu24.04-dist.tar.gz
+          path: ./artifacts/
 
       - name: Create latest release
         if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
@@ -362,7 +363,7 @@ jobs:
           prerelease: true
           title: "Latest Build"
           files: |
-            ./artifacts/rimeapi.lua-macos-dist.zip
+            ./artifacts/rimeapi.lua-macos-dist.tar.gz
             ./artifacts/rimeapi.lua-winx64-dist.zip
             ./artifacts/rimeapi.lua-winx86-dist.zip
-            ./artifacts/rimeapi.lua-ubuntu24.04-dist.zip
+            ./artifacts/rimeapi.lua-ubuntu24.04-dist.tar.gz
