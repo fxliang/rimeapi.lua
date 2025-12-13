@@ -1,0 +1,54 @@
+diff --git a/deps.mk b/deps.mk
+index d692b9bb..55a55b02 100644
+--- a/deps.mk
++++ b/deps.mk
+@@ -34,6 +34,8 @@ clean-src:
+ glog:
+ 	cd $(src_dir)/glog; \
+ 	cmake . -B$(build) \
++	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON \
++	-DWITH_UNWIND:BOOL=OFF \
+ 	-DBUILD_SHARED_LIBS:BOOL=OFF \
+ 	-DBUILD_TESTING:BOOL=OFF \
+ 	-DWITH_GFLAGS:BOOL=OFF \
+@@ -44,6 +46,7 @@ glog:
+ googletest:
+ 	cd $(src_dir)/googletest; \
+ 	cmake . -B$(build) \
++	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON \
+ 	-DBUILD_GMOCK:BOOL=OFF \
+ 	-DCMAKE_BUILD_TYPE:STRING="Release" \
+ 	-DCMAKE_INSTALL_PREFIX:PATH="$(prefix)" \
+@@ -52,6 +55,8 @@ googletest:
+ leveldb:
+ 	cd $(src_dir)/leveldb; \
+ 	cmake . -B$(build) \
++	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON \
++	-DHAVE_SNAPPY:BOOL=OFF \
+ 	-DLEVELDB_BUILD_BENCHMARKS:BOOL=OFF \
+ 	-DLEVELDB_BUILD_TESTS:BOOL=OFF \
+ 	-DCMAKE_BUILD_TYPE:STRING="Release" \
+@@ -61,6 +66,7 @@ leveldb:
+ marisa-trie:
+ 	cd $(src_dir)/marisa-trie; \
+ 	cmake . -B$(build) \
++	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON \
+ 	-DCMAKE_BUILD_TYPE:STRING="Release" \
+ 	-DCMAKE_INSTALL_PREFIX:PATH="$(prefix)" \
+ 	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON \
+@@ -71,6 +77,7 @@ marisa-trie:
+ opencc:
+ 	cd $(src_dir)/opencc; \
+ 	cmake . -B$(build) \
++	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON \
+ 	-DBUILD_SHARED_LIBS:BOOL=OFF \
+ 	-DCMAKE_BUILD_TYPE:STRING="Release" \
+ 	-DCMAKE_INSTALL_PREFIX:PATH="$(prefix)" \
+@@ -79,6 +86,7 @@ opencc:
+ yaml-cpp:
+ 	cd $(src_dir)/yaml-cpp; \
+ 	cmake . -B$(build) \
++	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON \
+ 	-DYAML_CPP_BUILD_CONTRIB:BOOL=OFF \
+ 	-DYAML_CPP_BUILD_TESTS:BOOL=OFF \
+ 	-DYAML_CPP_BUILD_TOOLS:BOOL=OFF \

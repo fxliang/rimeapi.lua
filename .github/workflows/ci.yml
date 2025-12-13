@@ -82,7 +82,7 @@ jobs:
           cp ./rimeapi.annotation.lua ./dist/
           cp ./README.md ./dist/
           cp ./rime_api_console.lua ./dist/
-          cp ./librime.*.dylib ./dist/
+          cp ./librime.dylib ./dist/
           cp -r ./rime-plugins ./dist/
           cp ./LICENSE ./dist/
           cp ./schema_tester.lua ./dist/
@@ -97,10 +97,11 @@ jobs:
           path: ./dist/
 
   build-ubuntu:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         maker: [xmake]
+
     steps:
 
       - uses: actions/checkout@v4
@@ -119,13 +120,14 @@ jobs:
         id: cache-librime
         uses: actions/cache@v4
         with:
-          path: librime/librime_1.14.0-1_amd64.deb
+          path: librime.so
           key: ${{ runner.os }}-librime-${{ steps.librime-hash.outputs.short }}
           restore-keys: |
             ${{ runner.os }}-librime-
 
       - name: setup deps
         working-directory: librime
+        if: steps.cache-librime.outputs.cache-hit != 'true'
         run: ./action-install-linux.sh
 
       - name: prepare librime
@@ -134,26 +136,15 @@ jobs:
         working-directory: librime
         env:
           CMAKE_GENERATOR: Ninja
+          RIME_PLUGINS: hchunhui/librime-lua lotem/librime-octagram rime/librime-predict
         run: |
-          sudo apt install -y checkinstall
-          make
-          sudo checkinstall \
-            --pkgname=librime \
-            --pkgversion=1.14.0 \
-            --pkgrelease=1 \
-            --arch=amd64 \
-            --pkglicense=BSD \
-            --maintainer="fx.liang@outlook.com" \
-            --requires="libc6, libgcc-s1, libstdc++6, libgflags2.2, libgoogle-glog0v6t64, libleveldb1d, libmarisa0, libopencc1.1, libsnappy1v5, libunwind8" \
-            --nodoc \
-            --install=no \
-            --default \
-            --backup=no
-
-      - name: install librime
-        if: steps.cache-librime.outputs.cache-hit == 'true' || steps.prepare-librime.outcome == 'success'
-        working-directory: librime
-        run: sudo apt install -y ./librime_1.14.0-1_amd64.deb
+          ./action-install-plugins-macos.sh
+          cp ../action.patch ./
+          git apply action.patch
+          make deps
+          make merged-plugins
+          cp build/lib/librime.so ../
+          ldd ../librime.so
 
       - uses: xmake-io/github-action-setup-xmake@v1
         if: matrix.maker == 'xmake'
@@ -186,6 +177,33 @@ jobs:
           luajit test.lua api_test levers_api_test
           ./lua ./rimeapi.app.lua test.lua api_test levers_api_test
           luajit ./rimeapi.app.lua test.lua api_test levers_api_test
+
+      - name: prepare artifact
+        if: matrix.maker == 'xmake'
+        run: |
+          mkdir -p dist
+          cp ./rimeapi_lua.so ./dist/
+          cp ./rimeapi.lua ./dist/
+          cp ./rimeapi_ffi.lua ./dist/
+          cp ./rimeapi.app.lua ./dist/
+          cp ./test.lua ./dist/
+          cp -r ./scripts ./dist/
+          cp -r ./shared ./dist/
+          cp ./rimeapi.annotation.lua ./dist/
+          cp ./README.md ./dist/
+          cp ./rime_api_console.lua ./dist/
+          cp ./LICENSE ./dist/
+          cp ./schema_tester.lua ./dist/
+          cp ./schema_tester_config.lua ./dist/
+          cp ./noti_bridge.so ./dist/
+          cp ./librime.so ./dist/
+
+      - name: upload artifact
+        if: matrix.maker == 'xmake'
+        uses: actions/upload-artifact@v5
+        with:
+          name: rimeapi.lua-ubuntu24.04-dist
+          path: ./dist/
 
   build-windows:
     runs-on: windows-latest
@@ -297,8 +315,8 @@ jobs:
 
   latest-release:
     if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    needs: [build-macos, build-windows]
+    runs-on: ubuntu-24.04
+    needs: [build-macos, build-windows, build-ubuntu]
     steps:
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
@@ -318,12 +336,19 @@ jobs:
           name: rimeapi.lua-winx86-dist
           path: ./artifacts/rimeapi.lua-winx86-dist
 
+      - name: Download Ubuntu 24.04 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rimeapi.lua-ubuntu24.04-dist
+          path: ./artifacts/rimeapi.lua-ubuntu24.04-dist
+
       - name: Compress zips
         run: |
           cd ./artifacts
           zip -r rimeapi.lua-macos-dist.zip rimeapi.lua-macos-dist
           zip -r rimeapi.lua-winx64-dist.zip rimeapi.lua-winx64-dist
           zip -r rimeapi.lua-winx86-dist.zip rimeapi.lua-winx86-dist
+          zip -r rimeapi.lua-ubuntu24.04-dist.zip rimeapi.lua-ubuntu24.04-dist
 
       - name: Create latest release
         if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
@@ -337,3 +362,4 @@ jobs:
             ./artifacts/rimeapi.lua-macos-dist.zip
             ./artifacts/rimeapi.lua-winx64-dist.zip
             ./artifacts/rimeapi.lua-winx86-dist.zip
+            ./artifacts/rimeapi.lua-ubuntu24.04-dist.zip

@@ -64,6 +64,8 @@ rule('common_rules')
     else
       if is_plat('macosx') then
         target:add('includedirs', 'include')
+      elseif is_plat('linux') then
+        target:add('includedirs', 'librime/src')
       end
       target:add('syslinks', {'pthread', 'dl'})
       target:add('ldflags', ('-Wl,-rpath,' .. (is_plat('linux') and '$ORIGIN' or '@loader_path')), {force = true})
