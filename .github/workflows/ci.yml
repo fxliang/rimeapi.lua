@@ -88,6 +88,7 @@ jobs:
           cp ./schema_tester.lua ./dist/
           cp ./schema_tester_config.lua ./dist/
           cp ./noti_bridge.dylib ./dist/
+          cp ./lua ./dist/
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
@@ -197,6 +198,7 @@ jobs:
           cp ./schema_tester_config.lua ./dist/
           cp ./noti_bridge.so ./dist/
           cp ./librime.so ./dist/
+          cp ./lua ./dist/
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
@@ -305,6 +307,7 @@ jobs:
           cp ./schema_tester.lua ./dist/
           cp ./schema_tester_config.lua ./dist/
           cp ./noti_bridge.dll ./dist/
+          cp ./lua.exe ./dist/
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
