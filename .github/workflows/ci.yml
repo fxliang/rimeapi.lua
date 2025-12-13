@@ -71,27 +71,27 @@ jobs:
       - name: prepare artifact
         if: matrix.maker == 'xmake'
         run: |
-          mkdir -p dist
-          cp ./rimeapi_lua.dylib ./dist/
-          cp ./rimeapi.lua ./dist/
-          cp ./rimeapi_ffi.lua ./dist/
-          cp ./rimeapi.app.lua ./dist/
-          cp ./test.lua ./dist/
-          cp -r ./scripts ./dist/
-          cp -r ./shared ./dist/
-          cp ./rimeapi.annotation.lua ./dist/
-          cp ./README.md ./dist/
-          cp ./rime_api_console.lua ./dist/
-          cp ./librime.dylib ./dist/
-          cp -r ./rime-plugins ./dist/
-          cp ./LICENSE ./dist/
-          cp ./schema_tester.lua ./dist/
-          cp ./schema_tester_config.lua ./dist/
-          cp ./noti_bridge.dylib ./dist/
-          cp ./lua ./dist/
+          mkdir -p rimeapi.lua-macos-dist
+          cp ./rimeapi_lua.dylib ./rimeapi.lua-macos-dist/
+          cp ./rimeapi.lua ./rimeapi.lua-macos-dist/
+          cp ./rimeapi_ffi.lua ./rimeapi.lua-macos-dist/
+          cp ./rimeapi.app.lua ./rimeapi.lua-macos-dist/
+          cp ./test.lua ./rimeapi.lua-macos-dist/
+          cp -r ./scripts ./rimeapi.lua-macos-dist/
+          cp -r ./shared ./rimeapi.lua-macos-dist/
+          cp ./rimeapi.annotation.lua ./rimeapi.lua-macos-dist/
+          cp ./README.md ./rimeapi.lua-macos-dist/
+          cp ./rime_api_console.lua ./rimeapi.lua-macos-dist/
+          cp ./librime.dylib ./rimeapi.lua-macos-dist/
+          cp -r ./rime-plugins ./rimeapi.lua-macos-dist/
+          cp ./LICENSE ./rimeapi.lua-macos-dist/
+          cp ./schema_tester.lua ./rimeapi.lua-macos-dist/
+          cp ./schema_tester_config.lua ./rimeapi.lua-macos-dist/
+          cp ./noti_bridge.dylib ./rimeapi.lua-macos-dist/
+          cp ./lua ./rimeapi.lua-macos-dist/
 
       - name: tar artifact
-        run: tar czf rimeapi.lua-macos-dist.tar.gz ./dist/
+        run: tar czf rimeapi.lua-macos-dist.tar.gz ./rimeapi.lua-macos-dist/
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
@@ -185,26 +185,26 @@ jobs:
       - name: prepare artifact
         if: matrix.maker == 'xmake'
         run: |
-          mkdir -p dist
-          cp ./rimeapi_lua.so ./dist/
-          cp ./rimeapi.lua ./dist/
-          cp ./rimeapi_ffi.lua ./dist/
-          cp ./rimeapi.app.lua ./dist/
-          cp ./test.lua ./dist/
-          cp -r ./scripts ./dist/
-          cp -r ./shared ./dist/
-          cp ./rimeapi.annotation.lua ./dist/
-          cp ./README.md ./dist/
-          cp ./rime_api_console.lua ./dist/
-          cp ./LICENSE ./dist/
-          cp ./schema_tester.lua ./dist/
-          cp ./schema_tester_config.lua ./dist/
-          cp ./noti_bridge.so ./dist/
-          cp ./librime.so ./dist/
-          cp ./lua ./dist/
+          mkdir -p rimeapi.lua-ubuntu24.04-dist
+          cp ./rimeapi_lua.so ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./rimeapi.lua ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./rimeapi_ffi.lua ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./rimeapi.app.lua ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./test.lua ./rimeapi.lua-ubuntu24.04-dist/
+          cp -r ./scripts ./rimeapi.lua-ubuntu24.04-dist/
+          cp -r ./shared ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./rimeapi.annotation.lua ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./README.md ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./rime_api_console.lua ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./LICENSE ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./schema_tester.lua ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./schema_tester_config.lua ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./noti_bridge.so ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./librime.so ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./lua ./rimeapi.lua-ubuntu24.04-dist/
 
       - name: tar artifact
-        run: tar czf rimeapi.lua-ubuntu24.04-dist.tar.gz ./dist/
+        run: tar czf rimeapi.lua-ubuntu24.04-dist.tar.gz ./rimeapi.lua-ubuntu24.04-dist/
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
@@ -297,26 +297,26 @@ jobs:
       - name: prepare artifact
         if: matrix.maker == 'xmake'
         run: |
-          mkdir dist
-          cp ./rimeapi_lua.dll ./dist/
-          cp ./rimeapi.lua ./dist/
-          cp ./rimeapi_ffi.lua ./dist/
-          cp ./rimeapi.app.lua ./dist/
-          cp ./test.lua ./dist/
-          cp -r ./scripts ./dist/
-          cp -r ./shared ./dist/
-          cp ./rimeapi.annotation.lua ./dist/
-          cp ./README.md ./dist/
-          cp ./rime_api_console.lua ./dist/
-          cp ./rime.dll ./dist/
-          cp ./LICENSE ./dist/
-          cp ./schema_tester.lua ./dist/
-          cp ./schema_tester_config.lua ./dist/
-          cp ./noti_bridge.dll ./dist/
-          cp ./lua.exe ./dist/
+          mkdir rimeapi.lua-win${{ matrix.arch }}-dist
+          cp ./rimeapi_lua.dll ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./rimeapi.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./rimeapi_ffi.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./rimeapi.app.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./test.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp -r ./scripts ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp -r ./shared ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./rimeapi.annotation.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./README.md ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./rime_api_console.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./rime.dll ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./LICENSE ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./schema_tester.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./schema_tester_config.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./noti_bridge.dll ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./lua.exe ./rimeapi.lua-win${{ matrix.arch }}-dist/
 
       - name: zip artifact
-        run: 7z a -tzip rimeapi.lua-win${{ matrix.arch }}-dist.zip .\dist\*
+        run: 7z a -tzip rimeapi.lua-win${{ matrix.arch }}-dist.zip .\rimeapi.lua-win${{ matrix.arch }}-dist
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
