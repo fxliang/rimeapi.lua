@@ -53,6 +53,7 @@ extern "C" {
   RIME_API void finalize_bridge() {
     ensure_rime_api();
     rime_api->set_notification_handler(nullptr, nullptr);
+    FREE_RIME();
     std::vector<RimeNotificationMsg>().swap(lua_queue); // clear the lua queue
     std::lock_guard<std::mutex> lock(noti_mutex);
     std::vector<RimeNotificationMsg>().swap(msg_queue); // clear the queue
