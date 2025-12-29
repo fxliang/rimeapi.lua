@@ -292,7 +292,7 @@ local function main()
   local prompt = '> '
 
   while continue do
-    local input, status = LineEditor.read_line(prompt, history)
+    local input = readline(prompt)
     if input == nil then
       if status == 'interrupt' then
       else break end

@@ -308,6 +308,7 @@ ffi.cdef[[
     size_t max_messages);
   int init_bridge(void);
   void finalize_bridge(void);
+  const char* readline_bridge(const char* prompt);
 ]]
 
 function to_acp_path(path, cp)
@@ -523,6 +524,11 @@ local function NotificationBridge()
   })
 end
 local bridge = NotificationBridge()
+function readline(prompt)
+  local res = bridge.readline_bridge(prompt)
+  if res == nil then return nil end
+  return ffi.string(res)
+end
 -------------------------------------------------------------------------------
 local function ensure_api()
   if api == nil then

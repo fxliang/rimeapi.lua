@@ -40,7 +40,7 @@ target('noti_bridge')
   local file_name = is_plat('windows', 'mingw') and 'noti_bridge.dll'
     or (is_plat('macosx') and 'noti_bridge.dylib' or 'noti_bridge.so')
   set_filename(file_name)
-  add_files('src/noti_bridge.cpp')
+  add_files('src/noti_bridge.cpp', 'src/line_editor.cc')
   add_rules('copy_after_build', 'common_rules')
 
 -------------------------------------------------------------------------------

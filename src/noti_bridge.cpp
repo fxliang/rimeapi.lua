@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "line_editor.h"
 
 typedef struct {
   RimeSessionId id;
@@ -57,5 +58,14 @@ extern "C" {
     std::vector<RimeNotificationMsg>().swap(lua_queue); // clear the lua queue
     std::lock_guard<std::mutex> lock(noti_mutex);
     std::vector<RimeNotificationMsg>().swap(msg_queue); // clear the queue
+  }
+
+  RIME_API const char* readline_bridge(const char* prompt) {
+    static LineEditor editor(4096);
+    static std::string line_buffer;
+    if (editor.ReadLine(prompt, &line_buffer)) {
+      return line_buffer.c_str();
+    }
+    return nullptr;
   }
 }

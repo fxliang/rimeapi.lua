@@ -1,5 +1,6 @@
 #include "lua_export_type.h"
 #include "utils.h"
+#include "line_editor.h"
 #include <cstring>
 #include <unordered_set>
 #ifdef __GNUC__
@@ -2292,6 +2293,18 @@ static int resolve_path(lua_State* L) {
   return 1;
 }
 
+static int readline(lua_State* L) {
+  static LineEditor editor(4096);
+  const char* prompt = luaL_optstring(L, 1, nullptr);
+  std::string line;
+  if (editor.ReadLine(prompt, &line)) {
+    lua_pushstring(L, line.c_str());
+  } else {
+    lua_pushnil(L);
+  }
+  return 1;
+}
+
 static void register_rime_bindings(lua_State *L) {
   EXPORT(RimeTraitsReg, L);
   EXPORT(RimeCompositionReg, L);
@@ -2340,6 +2353,7 @@ static void register_rime_bindings(lua_State *L) {
   REGISTER_GLOBAL_FUNC("to_acp_path", to_acp_path);
   REGISTER_GLOBAL_FUNC("set_console_color", set_console_color);
   REGISTER_GLOBAL_FUNC("resolve_path", resolve_path);
+  REGISTER_GLOBAL_FUNC("readline", readline);
 #undef REGISTER_GLOBAL_FUNC
 }
 
