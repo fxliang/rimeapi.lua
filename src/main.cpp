@@ -2296,8 +2296,24 @@ static int resolve_path(lua_State* L) {
 static int readline(lua_State* L) {
   static LineEditor editor(4096);
   const char* prompt = luaL_optstring(L, 1, nullptr);
+  
+  if (lua_istable(L, 2)) {
+    std::vector<std::string> history;
+    int len = lua_rawlen(L, 2);
+    for (int i = 1; i <= len; ++i) {
+      lua_rawgeti(L, 2, i);
+      const char* s = lua_tostring(L, -1);
+      if (s) history.push_back(s);
+      lua_pop(L, 1);
+    }
+    editor.SetHistory(history);
+  }
+  
+  const char* context = luaL_optstring(L, 3, nullptr);
+  const char* continuation_prompt = luaL_optstring(L, 4, nullptr);
+
   std::string line;
-  if (editor.ReadLine(prompt, &line)) {
+  if (editor.ReadLine(prompt, &line, context, continuation_prompt)) {
     lua_pushstring(L, line.c_str());
   } else {
     lua_pushnil(L);

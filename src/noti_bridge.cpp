@@ -60,10 +60,18 @@ extern "C" {
     std::vector<RimeNotificationMsg>().swap(msg_queue); // clear the queue
   }
 
-  RIME_API const char* readline_bridge(const char* prompt) {
+  RIME_API const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt) {
     static LineEditor editor(4096);
+    if (history && history_count > 0) {
+      std::vector<std::string> hist_vec;
+      hist_vec.reserve(history_count);
+      for (int i = 0; i < history_count; ++i) {
+        if (history[i]) hist_vec.push_back(history[i]);
+      }
+      editor.SetHistory(hist_vec);
+    }
     static std::string line_buffer;
-    if (editor.ReadLine(prompt, &line_buffer)) {
+    if (editor.ReadLine(prompt, &line_buffer, context, continuation_prompt)) {
       return line_buffer.c_str();
     }
     return nullptr;

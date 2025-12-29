@@ -11,12 +11,51 @@
 #include <cstdio>
 #include <algorithm>
 
-LineEditor::LineEditor(size_t max_length) : max_length_(max_length) {}
+#ifdef _WIN32
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
+#endif
 
-bool LineEditor::ReadLine(const char* prompt, std::string* out) {
+LineEditor::LineEditor(size_t max_length) : max_length_(max_length) {
+#ifdef _WIN32
+  HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+  if (hOut != INVALID_HANDLE_VALUE) {
+    DWORD dwMode = 0;
+    if (GetConsoleMode(hOut, &dwMode)) {
+      dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+      if (SetConsoleMode(hOut, dwMode)) {
+        vt_supported_ = true;
+      }
+    }
+  }
+#else
+  vt_supported_ = true;
+#endif
+}
+
+void LineEditor::SetHistory(const std::vector<std::string>& history) {
+  history_ = history;
+  history_position_ = history_.size();
+}
+
+bool LineEditor::ReadLine(const char* prompt, std::string* out, const char* context, const char* continuation_prompt) {
   if (!out)
     return false;
   prompt_ = prompt ? prompt : "";
+  if (continuation_prompt) {
+    continuation_prompt_ = continuation_prompt;
+  } else {
+    size_t last_non_space = prompt_.find_last_not_of(" ");
+    if (last_non_space == std::string::npos) {
+      continuation_prompt_ = prompt_;
+    } else {
+      std::string prefix = prompt_.substr(0, last_non_space + 1);
+      std::string suffix = prompt_.substr(last_non_space + 1);
+      continuation_prompt_ = prefix + prefix + suffix;
+    }
+  }
+  context_ = context ? context : "";
 #ifndef _WIN32
   struct TermiosGuard {
     termios original;
@@ -47,8 +86,13 @@ bool LineEditor::ReadLine(const char* prompt, std::string* out) {
   browsing_history_ = false;
   saved_line_.clear();
   suggestion_.clear();
-  last_rendered_length_ = 0;
+  last_full_content_.clear();
+  last_cursor_idx_ = 0;
+  
+  // Initial suggestion update for context-based suggestions
+  UpdateSuggestion(line);
   RefreshLine(line, cursor);
+  
   while (true) {
     int ch = ReadChar();
     if (ch == -1) {
@@ -57,6 +101,7 @@ bool LineEditor::ReadLine(const char* prompt, std::string* out) {
       return false;
     }
     if (ch == '\r' || ch == '\n') {
+      suggestion_.clear();
       RefreshLine(line, line.size());
       putchar('\n');
       fflush(stdout);
@@ -148,77 +193,121 @@ int LineEditor::ReadChar() {
 #endif
 }
 
-void LineEditor::RefreshLine(const std::string& line, size_t cursor) {
-  // Carriage return to start of line
-  putchar('\r');
-  // Print prompt
-  fputs(prompt_.c_str(), stdout);
-  // Print current line content
-  fputs(line.c_str(), stdout);
-
-  // Print suggestion in dim color if available
-  if (!suggestion_.empty() && cursor == line.length()) {
-#ifdef _WIN32
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
-    GetConsoleScreenBufferInfo(hConsole, &consoleInfo);
-    WORD originalAttrs = consoleInfo.wAttributes;
-    // Use Dark Gray (Bright Black) for suggestion
-    // Preserve background
-    WORD bg = originalAttrs & (BACKGROUND_BLUE | BACKGROUND_GREEN |
-                               BACKGROUND_RED | BACKGROUND_INTENSITY);
-    SetConsoleTextAttribute(hConsole, bg | FOREGROUND_INTENSITY);
-    fputs(suggestion_.c_str(), stdout);
-    SetConsoleTextAttribute(hConsole, originalAttrs);
-#else
-    // ANSI escape code for dim text (usually gray)
-    fputs("\x1b[90m", stdout);
-    fputs(suggestion_.c_str(), stdout);
-    // Reset color
-    fputs("\x1b[0m", stdout);
-#endif
+static std::string VisualTransform(const std::string& text, const std::string& continuation_prompt) {
+  std::string visual = text;
+  std::string replacement = "\n" + continuation_prompt;
+  size_t pos = 0;
+  while ((pos = visual.find('\n', pos)) != std::string::npos) {
+    visual.replace(pos, 1, replacement);
+    pos += replacement.length();
   }
+  return visual;
+}
 
-  // Clear to end of line if previous line was longer
-  size_t current_length = prompt_.length() + line.length() + suggestion_.length();
-  if (current_length < last_rendered_length_) {
-#ifdef _WIN32
-    // Print spaces to clear
-    for (size_t i = current_length; i < last_rendered_length_; ++i) {
-      putchar(' ');
+static size_t LogicalToVisualIndex(const std::string& text, size_t index, size_t continuation_len) {
+  size_t visual_index = 0;
+  for (size_t i = 0; i < index && i < text.length(); ++i) {
+    visual_index++;
+    if (text[i] == '\n') {
+      visual_index += continuation_len;
     }
-    // Move cursor back to end of current content
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
-    GetConsoleScreenBufferInfo(hConsole, &consoleInfo);
-    COORD pos = consoleInfo.dwCursorPosition;
-    pos.X -= static_cast<SHORT>(last_rendered_length_ - current_length);
-    SetConsoleCursorPosition(hConsole, pos);
-#else
-    // ANSI escape code to clear from cursor to end of line
-    fputs("\x1b[K", stdout);
-#endif
   }
-  last_rendered_length_ = current_length;
+  return visual_index;
+}
 
-  // Move cursor to correct position
-  // We are currently at the end of the printed content (line + suggestion)
-  // We need to move back by (line.length() - cursor) + suggestion.length()
-  size_t move_back = (line.length() - cursor) + suggestion_.length();
-  if (move_back > 0) {
+LineEditor::Pos LineEditor::CalculatePos(const std::string& str, size_t index) {
+  Pos pos = {0, 0};
+  for (size_t i = 0; i < index && i < str.length(); ++i) {
+    if (str[i] == '\n') {
+      pos.row++;
+      pos.col = 0;
+    } else {
+      pos.col++;
+    }
+  }
+  return pos;
+}
+
+void LineEditor::RefreshLine(const std::string& line, size_t cursor) {
+  std::string visual_line = VisualTransform(line, continuation_prompt_);
+  std::string visual_suggestion = VisualTransform(suggestion_, continuation_prompt_);
+
+  if (vt_supported_) {
+    // 1. Move cursor to the start of the previously rendered content
+    Pos old_pos = CalculatePos(last_full_content_, last_cursor_idx_);
+    if (old_pos.row > 0) {
+      printf("\x1b[%zuA", old_pos.row);
+    }
+    putchar('\r');
+
+    // 2. Clear everything from cursor down
+    fputs("\x1b[0m", stdout);
+    fputs("\x1b[J", stdout);
+
+    // 3. Print new content
+    fputs(prompt_.c_str(), stdout);
+    fputs(visual_line.c_str(), stdout);
+    if (!visual_suggestion.empty()) {
+      fputs("\x1b[90m", stdout);
+      fputs(visual_suggestion.c_str(), stdout);
+      fputs("\x1b[0m", stdout);
+    }
+    std::string full_content = prompt_ + visual_line + visual_suggestion;
+
+    // 4. Move cursor to the correct position
+    size_t visual_cursor_offset = LogicalToVisualIndex(line, cursor, continuation_prompt_.length());
+    size_t new_cursor_idx = prompt_.length() + visual_cursor_offset;
+    
+    // Safety clamp
+    if (new_cursor_idx > full_content.length()) {
+        new_cursor_idx = full_content.length();
+    }
+
+    Pos new_pos = CalculatePos(full_content, new_cursor_idx);
+    Pos end_pos = CalculatePos(full_content, full_content.length());
+
+    // Move up from end to target row
+    if (end_pos.row > new_pos.row) {
+      printf("\x1b[%zuA", end_pos.row - new_pos.row);
+    }
+    putchar('\r');
+    if (new_pos.col > 0) {
+      printf("\x1b[%zuC", new_pos.col);
+    }
+
+    fflush(stdout);
+
+    last_full_content_ = full_content;
+    last_cursor_idx_ = new_cursor_idx;
+  } else {
 #ifdef _WIN32
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
-    GetConsoleScreenBufferInfo(hConsole, &consoleInfo);
-    COORD pos = consoleInfo.dwCursorPosition;
-    pos.X -= static_cast<SHORT>(move_back);
-    SetConsoleCursorPosition(hConsole, pos);
-#else
-    printf("\x1b[%zuD", move_back);
+    // Fallback for Windows without VT
+    putchar('\r');
+    // Clear line by overwriting with spaces
+    if (!last_full_content_.empty()) {
+        size_t len = last_full_content_.length();
+        for(size_t i=0; i<len+1; ++i) putchar(' ');
+        putchar('\r');
+    }
+
+    fputs(prompt_.c_str(), stdout);
+    fputs(visual_line.c_str(), stdout);
+    if (!visual_suggestion.empty()) {
+      HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+      CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
+      GetConsoleScreenBufferInfo(hConsole, &consoleInfo);
+      WORD originalAttrs = consoleInfo.wAttributes;
+      WORD bg = originalAttrs & (BACKGROUND_BLUE | BACKGROUND_GREEN |
+                                 BACKGROUND_RED | BACKGROUND_INTENSITY);
+      SetConsoleTextAttribute(hConsole, bg | FOREGROUND_INTENSITY);
+      fputs(visual_suggestion.c_str(), stdout);
+      SetConsoleTextAttribute(hConsole, originalAttrs);
+    }
+    
+    last_full_content_ = prompt_ + visual_line + visual_suggestion;
+    // Note: Cursor positioning is not handled perfectly here for mid-line edits without VT
 #endif
   }
-
-  fflush(stdout);
 }
 bool LineEditor::HandleEscapeSequence(int ch,
                                       std::string* line,
@@ -321,13 +410,16 @@ void LineEditor::RecallHistory(int direction,
     history_position_ = history_.size();
   }
 
+  std::string search_prefix = context_ + saved_line_;
+
   size_t pos = history_position_;
   if (direction < 0) {
     while (pos > 0) {
       --pos;
-      if (history_[pos].compare(0, saved_line_.size(), saved_line_) == 0) {
+      if (history_[pos].size() >= search_prefix.size() &&
+          history_[pos].compare(0, search_prefix.size(), search_prefix) == 0) {
         history_position_ = pos;
-        *line = history_[history_position_];
+        *line = history_[history_position_].substr(context_.length());
         *cursor = line->size();
         RefreshLine(*line, *cursor);
         return;
@@ -344,9 +436,10 @@ void LineEditor::RecallHistory(int direction,
         RefreshLine(*line, *cursor);
         return;
       }
-      if (history_[pos].compare(0, saved_line_.size(), saved_line_) == 0) {
+      if (history_[pos].size() >= search_prefix.size() &&
+          history_[pos].compare(0, search_prefix.size(), search_prefix) == 0) {
         history_position_ = pos;
-        *line = history_[history_position_];
+        *line = history_[history_position_].substr(context_.length());
         *cursor = line->size();
         RefreshLine(*line, *cursor);
         return;
@@ -358,14 +451,17 @@ void LineEditor::RecallHistory(int direction,
 
 void LineEditor::UpdateSuggestion(const std::string& line) {
   suggestion_.clear();
-  if (line.empty()) {
+  // Allow suggestion even if line is empty, as long as we have context (previous lines)
+  if (line.empty() && context_.empty()) {
     return;
   }
+  
+  std::string full_current = context_ + line;
 
   // Search history backwards for a match
   for (auto it = history_.rbegin(); it != history_.rend(); ++it) {
-    if (it->length() > line.length() && it->substr(0, line.length()) == line) {
-      suggestion_ = it->substr(line.length());
+    if (it->length() > full_current.length() && it->substr(0, full_current.length()) == full_current) {
+      suggestion_ = it->substr(full_current.length());
       return;
     }
   }

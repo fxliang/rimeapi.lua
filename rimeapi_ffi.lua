@@ -308,7 +308,7 @@ ffi.cdef[[
     size_t max_messages);
   int init_bridge(void);
   void finalize_bridge(void);
-  const char* readline_bridge(const char* prompt);
+  const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt);
 ]]
 
 function to_acp_path(path, cp)
@@ -524,8 +524,19 @@ local function NotificationBridge()
   })
 end
 local bridge = NotificationBridge()
-function readline(prompt)
-  local res = bridge.readline_bridge(prompt)
+function readline(prompt, history, context, continuation_prompt)
+  local history_ptr = nil
+  local history_count = 0
+  if history and type(history) == 'table' then
+    history_count = #history
+    if history_count > 0 then
+      history_ptr = ffi.new("const char*[?]", history_count)
+      for i = 1, history_count do
+        history_ptr[i-1] = tostring(history[i])
+      end
+    end
+  end
+  local res = bridge.readline_bridge(prompt, history_ptr, history_count, context, continuation_prompt)
   if res == nil then return nil end
   return ffi.string(res)
 end

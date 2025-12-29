@@ -72,6 +72,10 @@ local function set_arg_table(script_path, extras)
   _G.arg = args
 end
 
+local function has_visible_chars(str)
+  return type(str) == 'string' and str:match('%S') ~= nil
+end
+
 local function try_compile_chunk(chunk)
   if chunk == nil then return nil, false, 'empty chunk' end
   local fn, err = load('return ' .. chunk, '=(repl)')
@@ -85,26 +89,30 @@ local function try_compile_chunk(chunk)
   return nil, false, err
 end
 
-local function collect_chunk(history, prompt, continuation_prompt, initial_text)
+local function collect_chunk(history, prompt, continuation_prompt)
   local lines = {}
   local current_prompt = prompt
-  local first = true
-  local opts = { continuation_prompt = continuation_prompt, initial_text = initial_text }
 
   while true do
-    local line, tag = LineEditor.read_line(current_prompt, history, opts)
-    if first then
-      -- after first read, drop initial_text so subsequent continuation lines do not prefill again
-      opts.initial_text = nil
-      first = false
+    local context = table.concat(lines, '\n')
+    if #lines > 0 then context = context .. '\n' end
+
+    local line
+    if readline then
+      line = readline(current_prompt, history, context, continuation_prompt)
+    else
+      io.write(current_prompt)
+      io.flush()
+      line = io.read("*l")
     end
+
     if line == nil then
-      return nil, nil, false, tag
+      return nil, nil, false, 'eof'
     end
 
     lines[#lines + 1] = line
     local chunk = table.concat(lines, '\n')
-    if not LineEditor.has_visible_chars(chunk) and #lines == 1 then
+    if not has_visible_chars(chunk) and #lines == 1 then
       return chunk, nil, false, 'blank'
     end
     local fn, is_expr, err = try_compile_chunk(chunk)
@@ -205,11 +213,9 @@ local function repl()
   local prompt = '> '
   local continuation_prompt = '>> '
   local interrupted = false
-  local prefill_next = nil
 
   while true do
-    local chunk, fn, is_expr, status, err = collect_chunk(history, prompt, continuation_prompt, prefill_next)
-    prefill_next = nil
+    local chunk, fn, is_expr, status, err = collect_chunk(history, prompt, continuation_prompt)
     if chunk == nil then
       if status == 'interrupt' then
         interrupted = true
@@ -219,7 +225,7 @@ local function repl()
       else
         break
       end
-    elseif status == 'blank' or not LineEditor.has_visible_chars(chunk) then
+    elseif status == 'blank' or not has_visible_chars(chunk) then
       -- ignore empty submissions
     elseif status == 'syntax' then
       history[#history + 1] = chunk
