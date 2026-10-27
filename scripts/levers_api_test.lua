@@ -80,6 +80,10 @@ if levers:load_settings(switcher_settings) then
       assert(levers:get_schema_description(v.schema_info))
       assert(levers:get_schema_version(v.schema_info))
       assert(levers:get_schema_file_path(v.schema_info))
+      local accepted_schema_info = pcall(function()
+        levers:load_settings(v.schema_info)
+      end)
+      assert(accepted_schema_info == false)
     end
     print('levers:get_schema_xxx and RimeSchemaInfo:get_schema_xxx functions passed')
     print('RimeSchemaListItem fields passed')
@@ -207,4 +211,3 @@ os.remove('luna_pinyin.export.txt')
 rime_api:finalize()
 levers = nil
 rime_api = nil
-

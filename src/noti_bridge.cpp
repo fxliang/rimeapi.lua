@@ -45,15 +45,16 @@ extern "C" {
   }
 
   RIME_API int init_bridge() {
-    ensure_rime_api();
+    if (!ensure_rime_api() || !RIME_API_AVAILABLE(rime_api, set_notification_handler))
+      return -1;
     rime_api->set_notification_handler(on_message, nullptr);
-    FREE_RIME();
     return 0;
   }
 
   RIME_API void finalize_bridge() {
-    ensure_rime_api();
-    rime_api->set_notification_handler(nullptr, nullptr);
+    if (rime_api && RIME_API_AVAILABLE(rime_api, set_notification_handler))
+      rime_api->set_notification_handler(nullptr, nullptr);
+    rime_api = nullptr;
     FREE_RIME();
     std::vector<RimeNotificationMsg>().swap(lua_queue); // clear the lua queue
     std::lock_guard<std::mutex> lock(noti_mutex);

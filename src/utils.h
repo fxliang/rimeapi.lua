@@ -78,11 +78,27 @@ inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) { re
 
 typedef RIME_FLAVORED(RimeApi) *(*RimeGetApi)(void);
 static RimeApi* rime_api = nullptr;
+static bool rime_service_initialized = false;
+static std::mutex rime_api_mutex;
+static size_t rime_lua_state_count = 0;
 
-#define RIMELEVERSAPI ((RimeLeversApi*)rime_api->find_module("levers")->get_api())
 #define RIMEAPI rime_api
+#define RIME_LEVERS_API_AVAILABLE(api, func) \
+  ((api) && RIME_STRUCT_HAS_MEMBER(*(api), (api)->func) && (api)->func)
 
-static inline void get_api() {
+static inline RimeLeversApi* get_levers_api() {
+  if (!rime_api || !RIME_API_AVAILABLE(rime_api, find_module))
+    return nullptr;
+  RimeModule* module = rime_api->find_module("levers");
+  if (!module || !RIME_STRUCT_HAS_MEMBER(*module, module->get_api) || !module->get_api)
+    return nullptr;
+  auto api = reinterpret_cast<RimeLeversApi*>(module->get_api());
+  if (!api || api->data_size < 0)
+    return nullptr;
+  return api;
+}
+
+static inline void get_api_unlocked() {
   if (rime_api) return;
   librime = load_librime();
   if (!librime) {
@@ -102,7 +118,28 @@ static inline void get_api() {
     FREE_RIME();
   }
 }
-static inline void ensure_rime_api() {
-  if (!rime_api) get_api();
-  assert(rime_api);
+static inline bool ensure_rime_api() {
+  std::lock_guard<std::mutex> lock(rime_api_mutex);
+  if (!rime_api) get_api_unlocked();
+  return rime_api != nullptr;
+}
+
+static inline void acquire_rime_lua_state() {
+  std::lock_guard<std::mutex> lock(rime_api_mutex);
+  ++rime_lua_state_count;
+}
+
+static inline void release_rime_lua_state() {
+  std::lock_guard<std::mutex> lock(rime_api_mutex);
+  if (rime_lua_state_count == 0 || --rime_lua_state_count != 0)
+    return;
+  if (rime_api && rime_service_initialized) {
+    if (RIME_API_AVAILABLE(rime_api, cleanup_all_sessions))
+      rime_api->cleanup_all_sessions();
+    if (RIME_API_AVAILABLE(rime_api, finalize))
+      rime_api->finalize();
+  }
+  rime_service_initialized = false;
+  rime_api = nullptr;
+  FREE_RIME();
 }
