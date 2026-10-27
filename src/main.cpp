@@ -317,13 +317,24 @@ struct has_data_size : std::false_type {};
 template <typename T>
 struct has_data_size<T, std::void_t<decltype(std::declval<T>().data_size)>> : std::true_type {};
 
+template <typename T, typename = std::void_t<>>
+struct is_complete_type : std::false_type {};
+
+template <typename T>
+struct is_complete_type<T, std::void_t<decltype(sizeof(T))>> : std::true_type {};
+
 template <typename T>
 static int raw_make(lua_State *L) {
-  auto t = std::make_shared<T>();
-  if constexpr (has_data_size<T>::value)
-    RIME_STRUCT_INIT(T, *t);
-  LuaType<std::shared_ptr<T>>::pushdata(L, t);
-  return 1;
+  if constexpr (!is_complete_type<T>::value) {
+    lua_pushnil(L);
+    return 1;
+  } else {
+    auto t = std::make_shared<T>();
+    if constexpr (has_data_size<T>::value)
+      RIME_STRUCT_INIT(T, *t);
+    LuaType<std::shared_ptr<T>>::pushdata(L, t);
+    return 1;
+  }
 }
 template <typename T>
 static int raw_make_struct(lua_State *L) {
@@ -2338,9 +2349,9 @@ static void register_rime_bindings(lua_State *L) {
   EXPORT(RimeCustomApiReg, L);
   EXPORT(RimeModuleReg, L);
   EXPORT(RimeApiReg, L);
-  EXPORT(RimeCustomSettingsReg, L);
-  EXPORT(RimeSwitcherSettingsReg, L);
-  EXPORT(RimeSchemaInfoReg, L);
+  EXPORT_INCOMPLETE(RimeCustomSettingsReg, L);
+  EXPORT_INCOMPLETE(RimeSwitcherSettingsReg, L);
+  EXPORT_INCOMPLETE(RimeSchemaInfoReg, L);
   EXPORT(RimeUserDictIteratorReg, L);
   EXPORT(RimeLeversApiReg, L);
   // register os_trymkdir to os.mkdir

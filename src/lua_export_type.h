@@ -46,6 +46,12 @@ void lua_export_type(lua_State *L,
                   LuaType<std::unique_ptr<ns::T>>::gc,                 \
                   ns::funcs, ns::methods, ns::vars_get, ns::vars_set)
 
+#define EXPORT_INCOMPLETE(ns, L) \
+  do {                           \
+  EXPORT_SPTR_TYPE(ns, L);       \
+  EXPORT_SPTR_CST_TYPE(ns, L);   \
+  } while (0)
+
 #define EXPORT(ns, L) \
   do {                         \
   EXPORT_TYPE(ns, L);          \
