@@ -3,13 +3,16 @@
 #include "line_editor.h"
 #include <cstring>
 #include <map>
+#include <unordered_map>
 #include <unordered_set>
 #ifdef __GNUC__
 #include <cxxabi.h>
 #endif
 
 static std::unordered_set<RimeConfig*> cfg_borrowed_set;
+static std::unordered_map<RimeConfig*, std::shared_ptr<void>> cfg_borrowed_owners;
 static std::unordered_set<RimeSchemaList*> schemalist_borrowed_set;
+static std::unordered_map<RimeSchemaList*, std::shared_ptr<void>> schemalist_borrowed_owners;
 static std::mutex cfg_borrowed_mutex;
 static std::mutex schemalist_borrowed_mutex;
 
@@ -39,13 +42,38 @@ static inline bool is_schemalist_borrowed(RimeSchemaList* list) {
   return schemalist_borrowed_set.find(list) != schemalist_borrowed_set.end();
 }
 
-static inline void set_config_borrowed(RimeConfig* cfg, bool borrowed) {
+static inline void set_config_borrowed(
+    RimeConfig* cfg, bool borrowed, std::shared_ptr<void> owner = {}) {
   if (!cfg) return;
   std::lock_guard<std::mutex> lk(cfg_borrowed_mutex);
-  if (borrowed)
+  if (borrowed) {
     cfg_borrowed_set.insert(cfg);
-  else
+    if (owner)
+      cfg_borrowed_owners[cfg] = std::move(owner);
+  } else {
     cfg_borrowed_set.erase(cfg);
+    cfg_borrowed_owners.erase(cfg);
+  }
+}
+static inline void set_schemalist_borrowed(
+    RimeSchemaList* list, std::shared_ptr<void> owner = {}) {
+  if (!list) return;
+  std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
+  schemalist_borrowed_set.insert(list);
+  if (owner)
+    schemalist_borrowed_owners[list] = std::move(owner);
+}
+static inline void clear_schemalist_borrowed(RimeSchemaList* list) {
+  if (!list) return;
+  std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
+  schemalist_borrowed_set.erase(list);
+  schemalist_borrowed_owners.erase(list);
+}
+static inline std::shared_ptr<void> get_schemalist_owner(RimeSchemaList* list) {
+  if (!list) return {};
+  std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
+  auto it = schemalist_borrowed_owners.find(list);
+  return it == schemalist_borrowed_owners.end() ? std::shared_ptr<void>() : it->second;
 }
 
 static std::unordered_set<void*> levers_settings_owned;
@@ -146,10 +174,7 @@ struct LuaType<std::shared_ptr<T>> {
         if constexpr CHECKT(RimeConfig) {
           if (!is_config_borrowed(p->get()) && RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, config_close))
             RIMEAPI->config_close(p->get());
-          {
-            std::lock_guard<std::mutex> lk(cfg_borrowed_mutex);
-            cfg_borrowed_set.erase(p->get());
-          }
+          set_config_borrowed(p->get(), false);
         } else if constexpr CHECKT(RimeConfigIterator) {
           if (RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, config_end))
             RIMEAPI->config_end(p->get());
@@ -171,10 +196,7 @@ struct LuaType<std::shared_ptr<T>> {
           } else if (RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, free_schema_list)) {
             RIMEAPI->free_schema_list(p->get());
           }
-          {
-            std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
-            schemalist_borrowed_set.erase(p->get());
-          }
+          clear_schemalist_borrowed(p->get());
         } else if constexpr CHECKT(RimeCandidateListIterator) {
           if (RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, candidate_list_end))
             RIMEAPI->candidate_list_end(p->get());
@@ -235,6 +257,45 @@ static T* smart_shared_ptr_todata(lua_State *L, int index = 1) {
   }
   // Not a recognized type
   return nullptr;
+}
+
+template <typename T>
+static std::shared_ptr<T> lua_shared_ptr_todata(lua_State* L, int index) {
+  const char* type_name = LuaType<std::shared_ptr<T>>::type()->name();
+  if (!luaL_testudata(L, index, type_name))
+    return {};
+  return LuaType<std::shared_ptr<T>>::todata(L, index);
+}
+
+static std::shared_ptr<void> lua_settings_owner(lua_State* L, int index) {
+  if (auto settings = lua_shared_ptr_todata<RimeCustomSettings>(L, index))
+    return std::shared_ptr<void>(settings);
+  if (auto settings = lua_shared_ptr_todata<RimeSwitcherSettings>(L, index))
+    return std::shared_ptr<void>(settings);
+  return {};
+}
+
+static void push_owner_uservalue(
+    lua_State* L, int userdata_index, const std::shared_ptr<void>& owner) {
+  if (!owner)
+    return;
+  const int absolute_index = lua_absindex(L, userdata_index);
+  auto copy = owner;
+  LuaType<std::shared_ptr<void>>::pushdata(L, copy);
+  lua_setuservalue(L, absolute_index);
+}
+
+static std::shared_ptr<void> get_owner_uservalue(lua_State* L, int userdata_index) {
+  std::shared_ptr<void> owner;
+  if (lua_getuservalue(L, userdata_index) != LUA_TUSERDATA) {
+    lua_pop(L, 1);
+    return owner;
+  }
+  const char* type_name = LuaType<std::shared_ptr<void>>::type()->name();
+  if (luaL_testudata(L, -1, type_name))
+    owner = LuaType<std::shared_ptr<void>>::todata(L, -1);
+  lua_pop(L, 1);
+  return owner;
 }
 
 // Lua userdata wrapper for RimeSessionId
@@ -645,18 +706,16 @@ namespace RimeConfigReg {
   static int reload(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
     // 方法调用时 Lua 堆栈: 1=self (config), 2=new_config_id
-    if (!t || !lua_isstring(L, 2)) {
+    if (!t || !lua_isstring(L, 2) || is_config_borrowed(t)) {
       lua_pushboolean(L, false);
     } else {
       const char *new_config_id = lua_tostring(L, 2);
       if (RimeApi *api = RIMEAPI; api &&
           RIME_API_AVAILABLE(api, config_open) &&
           RIME_API_AVAILABLE(api, config_close)) {
-        bool was_borrowed = is_config_borrowed(t);
-        if (!was_borrowed)
-          api->config_close(t);
+        api->config_close(t);
         Bool ok = api->config_open(new_config_id, t);
-        set_config_borrowed(t, was_borrowed && !ok);
+        set_config_borrowed(t, false);
         lua_pushboolean(L, !!ok);
       } else
         lua_pushboolean(L, false);
@@ -784,8 +843,13 @@ namespace RimeSchemaListItemReg {
   }
   static int get_reserved(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L, 1);
+    if (!t || !t->reserved) {
+      lua_pushnil(L);
+      return 1;
+    }
     auto sptr = std::shared_ptr<RimeSchemaInfo>((RimeSchemaInfo*)(t->reserved), [](RimeSchemaInfo* p){});
     LuaType<std::shared_ptr<RimeSchemaInfo>>::pushdata(L, sptr);
+    push_owner_uservalue(L, -1, get_owner_uservalue(L, 1));
     return 1;
   }
   static const luaL_Reg funcs[] = {
@@ -814,10 +878,12 @@ namespace RimeSchemaListReg {
     // return a table of RimeSchemaListItem
     // Accept either value userdata or shared_ptr userdata
     T* tp = smart_shared_ptr_todata<T>(L, 1);
+    auto owner = get_schemalist_owner(tp);
     lua_newtable(L);
     if (tp && tp->list) {
       for (size_t i = 0; i < tp->size; ++i) {
         LuaType<RimeSchemaListItem>::pushdata(L, tp->list[i]);
+        push_owner_uservalue(L, -1, owner);
         lua_rawseti(L, -2, (lua_Integer)(i + 1));  // 使用1-based索引给 Lua
       }
     }
@@ -1197,27 +1263,42 @@ namespace RimeApiReg {
     }
   }
 
-  int noti_func_ref = LUA_NOREF;
+  static const char noti_func_ref_key = 'n';
+
+  static int get_noti_func_ref(lua_State* L) {
+    lua_pushlightuserdata(L, (void*)&noti_func_ref_key);
+    lua_rawget(L, LUA_REGISTRYINDEX);
+    int ref = lua_isinteger(L, -1) ? (int)lua_tointeger(L, -1) : LUA_NOREF;
+    lua_pop(L, 1);
+    return ref;
+  }
+
+  static void set_noti_func_ref(lua_State* L, int ref) {
+    lua_pushlightuserdata(L, (void*)&noti_func_ref_key);
+    lua_pushinteger(L, ref);
+    lua_rawset(L, LUA_REGISTRYINDEX);
+  }
+
+  static void clear_noti_func_ref(lua_State* L) {
+    int ref = get_noti_func_ref(L);
+    if (ref != LUA_NOREF && ref != LUA_REFNIL)
+      luaL_unref(L, LUA_REGISTRYINDEX, ref);
+    set_noti_func_ref(L, LUA_NOREF);
+  }
+
   // Lua wrapper for set_notification_handler
   static int lua_set_notification_handler(lua_State *L) {
     T* api = smart_shared_ptr_todata<T>(L, 1);
+    if (!api || !RIME_API_AVAILABLE(api, set_notification_handler))
+      return luaL_error(L, "set_notification_handler is unavailable");
+    clear_noti_func_ref(L);
     // cache function on Lua stack index 2
     if (lua_isfunction(L, 2)) {
       api->set_notification_handler(on_message, nullptr);
-      // remove previous reference if any
-      if (noti_func_ref != LUA_NOREF) {
-        luaL_unref(L, LUA_REGISTRYINDEX, noti_func_ref);
-        noti_func_ref = LUA_NOREF;
-      }
       lua_pushvalue(L, 2); // copy function to top of stack
-      noti_func_ref = luaL_ref(L, LUA_REGISTRYINDEX); // store reference
+      set_noti_func_ref(L, luaL_ref(L, LUA_REGISTRYINDEX)); // store reference
     } else {
       api->set_notification_handler(nullptr, nullptr);
-      // remove previous reference if any
-      if (noti_func_ref != LUA_NOREF) {
-        luaL_unref(L, LUA_REGISTRYINDEX, noti_func_ref);
-        noti_func_ref = LUA_NOREF;
-      }
     }
     return 0;
   }
@@ -1248,7 +1329,8 @@ namespace RimeApiReg {
       pending_types.swap(msg_type);
       pending_values.swap(msg_value);
     }
-    if (noti_func_ref != LUA_NOREF) {
+    const int noti_func_ref = get_noti_func_ref(L);
+    if (noti_func_ref != LUA_NOREF && noti_func_ref != LUA_REFNIL) {
       for (size_t i = 0; i < pending_types.size(); ++i) {
         /* push the callback function from registry */
         lua_rawgeti(L, LUA_REGISTRYINDEX, noti_func_ref);   /* +1: func */
@@ -1368,11 +1450,14 @@ namespace RimeApiReg {
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 3);
       Bool result = false;
       if (config) {
-        bool was_borrowed = is_config_borrowed(config);
-        if (!was_borrowed && RIME_API_AVAILABLE(api, config_close))
-          api->config_close(config);
-        result = func_ptr(config_name, config);
-        set_config_borrowed(config, was_borrowed && !result);
+        if (is_config_borrowed(config)) {
+          result = false;
+        } else {
+          if (RIME_API_AVAILABLE(api, config_close))
+            api->config_close(config);
+          result = func_ptr(config_name, config);
+          set_config_borrowed(config, false);
+        }
       } else {
         result = func_ptr(config_name, config);
       }
@@ -1517,15 +1602,22 @@ namespace RimeApiReg {
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSchemaList*) {
       // get_schema_list
       RimeSchemaList* list = smart_shared_ptr_todata<RimeSchemaList>(L, 2);
+      if (list && is_schemalist_borrowed(list)) {
+        lua_pushboolean(L, false);
+        return 1;
+      }
       if (list && RIME_API_AVAILABLE(api, free_schema_list))
         api->free_schema_list(list); // ensure no leak
+      clear_schemalist_borrowed(list);
       Bool result = list ? func_ptr(list) : false;
       lua_pushboolean(L, result);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeSchemaList*) {
       // free_schema_list
       RimeSchemaList* list = smart_shared_ptr_todata<RimeSchemaList>(L, 2);
-      if (list) func_ptr(list);
+      if (list && !is_schemalist_borrowed(list))
+        func_ptr(list);
+      clear_schemalist_borrowed(list);
       return 0;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, char*, size_t) {
       // get_current_schema(session_id, buffer, buffer_size)
@@ -2148,79 +2240,99 @@ namespace RimeLeversApiReg {
       // settings_get_config(settings, config)
       RimeCustomSettings* settings = lua_to_custom_settings(L, 2);
       RimeConfig* cfg = smart_shared_ptr_todata<RimeConfig>(L, 3);
+      if (!settings || !cfg) {
+        lua_pushboolean(L, false);
+        return 1;
+      }
       Bool ret = func_ptr(settings, cfg);
-      if (ret) set_config_borrowed(cfg, true);
+      if (ret) set_config_borrowed(cfg, true, lua_settings_owner(L, 2));
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSwitcherSettings*, RimeSchemaList*) {
       // get_available_schema_list / get_selected_schema_list
       RimeSwitcherSettings* settings = smart_shared_ptr_todata<RimeSwitcherSettings>(L, 2);
       RimeSchemaList* list = smart_shared_ptr_todata<RimeSchemaList>(L, 3);
-      Bool ret = func_ptr(settings, list);
-      if (ret && list) {
-        std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
-        schemalist_borrowed_set.insert(list);
+      if (!settings || !list) {
+        lua_pushboolean(L, false);
+        return 1;
       }
+      Bool ret = func_ptr(settings, list);
+      if (ret) set_schemalist_borrowed(list, lua_settings_owner(L, 2));
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeSchemaList*) {
       // schema_list_destroy
       RimeSchemaList* list = smart_shared_ptr_todata<RimeSchemaList>(L, 2);
-      func_ptr(list);
-      if (list) {
-        std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
-        schemalist_borrowed_set.erase(list);
-      }
+      if (list) func_ptr(list);
+      clear_schemalist_borrowed(list);
       return 0;
     } else if constexpr SIGNATURE_CHECK(const char*, RimeSchemaInfo*) {
       // get_schema_* (id/name/version/author/description/file_path)
       RimeSchemaInfo* info = smart_shared_ptr_todata<RimeSchemaInfo>(L, 2);
+      if (!info) {
+        lua_pushnil(L);
+        return 1;
+      }
       const char* s = func_ptr(info);
       PUSH_VALUE_OR_NIL(L, s, s != nullptr, lua_pushstring);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSwitcherSettings*, const char*[], int) {
       // select_schemas(settings, const char* schema_id_list[], int count)
       RimeSwitcherSettings* settings = smart_shared_ptr_todata<RimeSwitcherSettings>(L, 2);
-      if (!lua_istable(L, 3)) {
-        luaL_error(L, "select_schemas expects a table of schema ids as second argument");
-        return 0;
-      }
+      if (!settings)
+        return luaL_error(L, "RimeSwitcherSettings expected");
+      if (!lua_istable(L, 3))
+        return luaL_error(L, "select_schemas expects a table of schema ids as second argument");
       size_t len = lua_rawlen(L, 3);
-      std::vector<const char*> ids;
-      ids.reserve(len);
+      const char** ids = static_cast<const char**>(
+          lua_newuserdata(L, (len ? len : 1) * sizeof(const char*)));
       for (size_t i = 1; i <= len; ++i) {
         lua_rawgeti(L, 3, i);
-        const char* id = luaL_checkstring(L, -1);
-        ids.push_back(id);
+        ids[i - 1] = luaL_checkstring(L, -1);
         lua_pop(L, 1);
       }
-      Bool ret = func_ptr(settings, ids.data(), (int)ids.size());
+      Bool ret = func_ptr(settings, ids, (int)len);
+      lua_pop(L, 1);
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(const char*, RimeSwitcherSettings*) {
       // get_hotkeys
       RimeSwitcherSettings* settings = smart_shared_ptr_todata<RimeSwitcherSettings>(L, 2);
+      if (!settings) {
+        lua_pushnil(L);
+        return 1;
+      }
       const char* s = func_ptr(settings);
       PUSH_VALUE_OR_NIL(L, s, s != nullptr, lua_pushstring);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSwitcherSettings*, const char*) {
       // set_hotkeys
       RimeSwitcherSettings* settings = smart_shared_ptr_todata<RimeSwitcherSettings>(L, 2);
+      if (!settings)
+        return luaL_error(L, "RimeSwitcherSettings expected");
       const char* hot = luaL_checkstring(L, 3);
       Bool ret = func_ptr(settings, hot);
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeUserDictIterator*) {
       RimeUserDictIterator* iter = smart_shared_ptr_todata<RimeUserDictIterator>(L, 2);
+      if (!iter) {
+        lua_pushboolean(L, false);
+        return 1;
+      }
       Bool ret = func_ptr(iter);
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeUserDictIterator*) {
       RimeUserDictIterator* iter = smart_shared_ptr_todata<RimeUserDictIterator>(L, 2);
-      func_ptr(iter);
+      if (iter) func_ptr(iter);
       return 0;
     } else if constexpr SIGNATURE_CHECK(const char*, RimeUserDictIterator*) {
       RimeUserDictIterator* iter = smart_shared_ptr_todata<RimeUserDictIterator>(L, 2);
+      if (!iter) {
+        lua_pushnil(L);
+        return 1;
+      }
       const char* s = func_ptr(iter);
       PUSH_VALUE_OR_NIL(L, s, s != nullptr, lua_pushstring);
       return 1;
@@ -2239,6 +2351,10 @@ namespace RimeLeversApiReg {
       RimeCustomSettings* settings = smart_shared_ptr_todata<RimeCustomSettings>(L, 2);
       const char* key = luaL_checkstring(L, 3);
       RimeConfig* cfg = smart_shared_ptr_todata<RimeConfig>(L, 4);
+      if (!settings || !cfg) {
+        lua_pushboolean(L, false);
+        return 1;
+      }
       Bool ret = func_ptr(settings, key, cfg);
       lua_pushboolean(L, ret);
       return 1;

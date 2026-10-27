@@ -1,6 +1,7 @@
 #pragma once
 #include <rime_api.h>
 #include <rime_levers_api.h>
+#include <atomic>
 #include <filesystem>
 #include <mutex>
 #include <vector>
@@ -78,7 +79,7 @@ inline unsigned int SetConsoleOutputCodePage(unsigned int codepage = 65001) { re
 
 typedef RIME_FLAVORED(RimeApi) *(*RimeGetApi)(void);
 static RimeApi* rime_api = nullptr;
-static bool rime_service_initialized = false;
+static std::atomic<bool> rime_service_initialized{false};
 static std::mutex rime_api_mutex;
 static size_t rime_lua_state_count = 0;
 

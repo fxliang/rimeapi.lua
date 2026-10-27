@@ -54,12 +54,16 @@ print('levers:switcher_settings_init passed')
 if levers:load_settings(switcher_settings) then
   print('levers:load_settings for switcher passed')
   local schemalist = RimeSchemaList()
+  local retained_item
+  local retained_info
   assert(schemalist ~= nil)
   print('RimeSchemaList() passed')
   if levers:get_available_schema_list(switcher_settings, schemalist) then
     print("levers:get_available_schema_list passed")
     local list = schemalist.list
     assert(type(list) == "table")
+    retained_item = list[1]
+    retained_info = retained_item and retained_item.schema_info
     print("RimeSchemaList.list field passed")
     for _,v in pairs(list) do
       assert(v.schema_id ~= nil)
@@ -109,6 +113,16 @@ if levers:load_settings(switcher_settings) then
   assert(levers:schema_list_destroy(schemaselected) == nil)
   assert(levers:schema_list_destroy(schemalist) == nil)
   print('levers:schema_list_destroy passed')
+  schemaselected = nil
+  schemalist = nil
+  switcher_settings = nil
+  collectgarbage('collect')
+  collectgarbage('collect')
+  assert(retained_item ~= nil and retained_item.schema_id ~= nil)
+  assert(retained_info ~= nil)
+  assert(retained_info:get_schema_id() ~= nil)
+  assert(retained_info:get_schema_name() ~= nil)
+  print('borrowed schema list item lifetime passed')
 end
 local api_settings = levers:custom_settings_init('api_test', "rimeapi.lua")
 assert(api_settings ~= nil)
@@ -162,6 +176,22 @@ assert(rime_api:deploy_config_file("api_test", "0.1") == true) -- with config id
 local a_config = RimeConfig()
 assert(levers:settings_get_config(api_settings, a_config) == true)
 print('levers:settings_get_config passed')
+
+local owner_settings = levers:custom_settings_init('default', "rimeapi.lua")
+assert(owner_settings ~= nil and levers:load_settings(owner_settings) == true)
+local borrowed_config = RimeConfig()
+assert(levers:settings_get_config(owner_settings, borrowed_config) == true)
+owner_settings = nil
+collectgarbage('collect')
+collectgarbage('collect')
+assert(borrowed_config:get_int("menu/page_size") == 10)
+assert(borrowed_config:open("default") == false)
+assert(borrowed_config:reload("default") == false)
+assert(rime_api:config_open("default", borrowed_config) == false)
+assert(borrowed_config:close() == false)
+print('borrowed config owner lifetime passed')
+borrowed_config = nil
+collectgarbage('collect')
 
 local default = RimeConfig()
 default:open("default")
