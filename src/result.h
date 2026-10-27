@@ -1,10 +1,12 @@
 #ifndef RESULT_H
 #define RESULT_H
 
+#include <utility>
+
 template<typename T, typename E>
 struct Result {
-  static Result<T, E> Ok(T &&t) { return Result<T, E>(t); }
-  static Result<T, E> Err(E &&e) { return Result<T, E>(e, tag()); }
+  static Result<T, E> Ok(T &&t) { return Result<T, E>(std::move(t)); }
+  static Result<T, E> Err(E &&e) { return Result<T, E>(std::move(e), tag()); }
   static Result<T, E> Ok(const T &t) { return Result<T, E>(t); }
   static Result<T, E> Err(const E &e) { return Result<T, E>(e, tag()); }
 
@@ -40,8 +42,8 @@ struct Result {
 private:
   struct tag {};
   Result() {}
-  Result(T &&t) : k_(UT) { new (&u_.t_) T(t); }
-  Result(E &&e, tag) : k_(UF) { new (&u_.e_) E(e); }
+  Result(T &&t) : k_(UT) { new (&u_.t_) T(std::move(t)); }
+  Result(E &&e, tag) : k_(UF) { new (&u_.e_) E(std::move(e)); }
   Result(const T &t) : k_(UT) { new (&u_.t_) T(t); }
   Result(const E &e, tag) : k_(UF) { new (&u_.e_) E(e); }
 
@@ -59,7 +61,7 @@ private:
 template<typename E>
 struct Result<void, E> {
   static Result<void, E> Ok() { return Result<void, E>(); }
-  static Result<void, E> Err(E &&e) { return Result<void, E>(e); }
+  static Result<void, E> Err(E &&e) { return Result<void, E>(std::move(e)); }
   static Result<void, E> Err(const E &e) { return Result<void, E>(e); }
 
   Result(Result &&o) : k_(o.k_) {
@@ -89,7 +91,7 @@ struct Result<void, E> {
 
 private:
   Result() : k_(UT) {}
-  Result(E &&e) : k_(UF) { new (&u_.e_) E(e); }
+  Result(E &&e) : k_(UF) { new (&u_.e_) E(std::move(e)); }
   Result(const E &e) : k_(UF) { new (&u_.e_) E(e); }
 
   union U {

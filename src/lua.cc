@@ -3,7 +3,7 @@
 
 namespace LuaImpl {
   int wrap_common(lua_State *L, int (*cfunc)(lua_State *)) {
-    char room[sizeof(C_State)];
+    alignas(C_State) char room[sizeof(C_State)];
     C_State *C = new (&room) C_State();
     lua_pushcfunction(L, cfunc);
     lua_insert(L, 1);
@@ -228,6 +228,7 @@ Lua::Lua(lua_State *L) {
 }
 
 Lua::~Lua() {
+  closing_ = true;
   lua_close(L_);
 }
 
@@ -265,7 +266,17 @@ std::shared_ptr<LuaObj> Lua::getglobal(const std::string &v) {
 }
 
 void Lua::gc() {
+  if (closing_) {
+    return;
+  }
   lua_gc(L_, LUA_GCCOLLECT, 0);
+}
+
+void Lua::gc_step(int kb) {
+  if (closing_) {
+    return;
+  }
+  lua_gc(L_, LUA_GCSTEP, kb);
 }
 
 LuaObj::LuaObj(lua_State *L, int i) : L_(L) {
