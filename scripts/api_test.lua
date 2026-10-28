@@ -36,6 +36,17 @@ assert(gc_probe.id ~= nil and gc_probe.id ~= 0)
 assert(rime_api:destroy_session(gc_probe) == true)
 print('RimeApi wrapper GC preserves service passed')
 
+if jit and rime_api._c then
+  local ffi = require('ffi')
+  local abi_probe = RimeConfig()
+  local original_size = rime_api._c.data_size
+  rime_api._c.data_size = ffi.offsetof('RimeApi', 'config_open') - ffi.sizeof('int') - 1
+  local ok, err = pcall(function() return rime_api:config_open('default', abi_probe) end)
+  rime_api._c.data_size = original_size
+  assert(ok == false and tostring(err):find('unavailable') ~= nil)
+  print('FFI API data_size guard passed')
+end
+
 local empty_composition = RimeComposition()
 local empty_menu = RimeMenu()
 local empty_schema_item = RimeSchemaListItem()
