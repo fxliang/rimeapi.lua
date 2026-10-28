@@ -37,7 +37,7 @@
 ---@field composition RimeComposition
 ---@field menu RimeMenu
 ---@field commit_text_preview string
----@field select_labels string
+---@field select_labels (string|false)[]|nil
 ---@field type string
 
 ---@class RimeStatus
@@ -112,6 +112,7 @@
 ---@field type string
 
 ---@class RimeTraits
+---@field data_size integer
 ---@field shared_data_dir string
 ---@field user_data_dir string
 ---@field distribution_name string
@@ -122,6 +123,7 @@
 ---@field log_dir string
 ---@field prebuilt_data_dir string
 ---@field staging_dir string
+---@field modules string[]|nil
 ---@field type string
 
 ---@class RimeCustomApi
@@ -167,7 +169,7 @@
 ---@field get_property fun(self: self, session: RimeSession|integer, property_name: string, buffer_size: integer|nil): string |nil
 ---@field get_schema_list fun(self: self, schema_list: RimeSchemaList): boolean
 ---@field free_schema_list fun(self: self, schema_list: RimeSchemaList): nil
----@field get_current_schema fun(self: self, session: RimeSession|integer, buffer_size: integer): string|nil
+---@field get_current_schema fun(self: self, session: RimeSession|integer, buffer_size: integer|nil): string|nil
 ---@field select_schema fun(self: self, session: RimeSession|integer, schema_id: string): boolean
 ---@field schema_open fun(self: self, schema_id: string, config: RimeConfig): boolean
 ---@field config_open fun(self: self, schema_id: string, config: RimeConfig): boolean

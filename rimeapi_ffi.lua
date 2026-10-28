@@ -727,7 +727,8 @@ function RimeTraits()
     local arr = ffi.new("const char *[?]", n + 1) -- 多一个 nil 结尾
     local strrefs = {}
     for i = 1, n do
-      local s = tostring(tbl[i] or "")
+      assert(type(tbl[i]) == "string", "modules must contain only strings")
+      local s = tbl[i]
       local buf = ffi.new("char[?]", #s + 1, s)
       strrefs[i] = buf
       arr[i - 1] = ffi.cast("const char *", buf)
@@ -1478,11 +1479,11 @@ function RimeApi()
           return nil
         end
       elseif k == 'is_maintenance_mode' then
-        return function() return tonumber(fn("is_maintenance_mode")()) end
+        return function() return fn("is_maintenance_mode")() ~= 0 end
       elseif k == 'start_maintenance' then
         return function(_, full_check)
           local res = fn("start_maintenance")(full_check and 1 or 0)
-          return tonumber(res)
+          return res ~= 0
         end
       elseif k == 'join_maintenance_thread' then
         return function(_)
@@ -1808,7 +1809,7 @@ function RimeApi()
       elseif k == 'change_page' then
         return function(_, session_id, backward) return fn("change_page")(tosessionid(session_id), backward and 1 or 0) ~= 0 end
       elseif k == 'run_task' then
-        return function(_, task_name) return tonumber(fn("run_task")(tostring(task_name))) end
+        return function(_, task_name) return fn("run_task")(tostring(task_name)) ~= 0 end
       elseif k == 'find_module' then
         return function(_, module_name)
           local module_c = fn("find_module")(tostring(module_name))

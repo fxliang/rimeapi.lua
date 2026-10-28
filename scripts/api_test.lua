@@ -1,4 +1,15 @@
 local rime_api = RimeApi()
+local modules_probe = RimeTraits()
+do
+  local modules = {"levers", "rimeapi-parity-probe"}
+  modules_probe.modules = modules
+end
+collectgarbage('collect')
+assert(modules_probe.modules[1] == "levers")
+assert(modules_probe.modules[2] == "rimeapi-parity-probe")
+modules_probe.modules = nil
+assert(modules_probe.modules == nil)
+print('RimeTraits.modules parity passed')
 local traits = RimeTraits()
 traits.app_name = "rimeapi"
 traits.shared_data_dir = "shared"
@@ -63,14 +74,16 @@ registered_module = nil
 collectgarbage('collect')
 assert(rime_api:find_module('rimeapi_lua_lifetime_test') ~= nil)
 print('registered RimeModule lifetime passed')
-if rime_api:start_maintenance(true) then
+local maintenance_started = rime_api:start_maintenance(true)
+assert(type(maintenance_started) == "boolean")
+if maintenance_started then
   rime_api:join_maintenance_thread()
   print('rime_api:join_maintenance_thread passed')
-  print('rime_api:start_maintenance passed')
-  local is_maintenace_mode = rime_api:is_maintenance_mode()
-  assert(is_maintenace_mode ~= nil)
-  print('rime_api:is_maintenance_mode passed: ')
 end
+print('rime_api:start_maintenance passed')
+assert(type(rime_api:is_maintenance_mode()) == "boolean")
+assert(type(rime_api:run_task("rimeapi_unknown_task")) == "boolean")
+print('rime_api:is_maintenance_mode and run_task return booleans passed')
 
 rime_api:drain_notifications()
 ----------------------------------------------------------------
@@ -106,6 +119,7 @@ print('rime_api:select_schema passed')
 --rime_api:drain_notifications()
 assert(rime_api:get_current_schema(session) == "luna_pinyin")
 assert(rime_api:get_current_schema(session, 512) == "luna_pinyin")
+assert(rime_api:get_current_schema(0) == nil)
 print('rime_api:get_current_schema passed: ')
 ----------------------------------------------------------------
 -- test for process_key press a

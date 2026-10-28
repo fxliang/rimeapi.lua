@@ -741,7 +741,7 @@ namespace RimeContextReg {
       if (context->select_labels[i])
         lua_pushstring(L, context->select_labels[i]);
       else
-        lua_pushnil(L);
+        lua_pushboolean(L, false);
       lua_rawseti(L, -2, i + 1);
     }
     return 1;
@@ -1202,11 +1202,17 @@ namespace RimeModuleReg {
   };
 }
 
+struct TraitsModulesStorage {
+  std::vector<std::string> values;
+  std::vector<const char*> pointers;
+};
+
 namespace RimeTraitsReg {
   using T = RimeTraits;
-  static void retain_string(lua_State* L, int userdata_index,
-                            int value_index, const char* field) {
+  static void retain_value(lua_State* L, int userdata_index,
+                           int value_index, const char* field) {
     const int object = lua_absindex(L, userdata_index);
+    const int value = lua_absindex(L, value_index);
     lua_getuservalue(L, object);
     if (!lua_istable(L, -1)) {
       lua_pop(L, 1);
@@ -1214,9 +1220,74 @@ namespace RimeTraitsReg {
       lua_pushvalue(L, -1);
       lua_setuservalue(L, object);
     }
-    lua_pushvalue(L, value_index);
+    lua_pushvalue(L, value);
     lua_setfield(L, -2, field);
     lua_pop(L, 1);
+  }
+  static void clear_value(lua_State* L, int userdata_index, const char* field) {
+    const int object = lua_absindex(L, userdata_index);
+    lua_getuservalue(L, object);
+    if (lua_istable(L, -1)) {
+      lua_pushnil(L);
+      lua_setfield(L, -2, field);
+    }
+    lua_pop(L, 1);
+  }
+  static void retain_string(lua_State* L, int userdata_index,
+                            int value_index, const char* field) {
+    retain_value(L, userdata_index, value_index, field);
+  }
+  static int get_modules(lua_State* L) {
+    T* traits = smart_shared_ptr_todata<T>(L, 1);
+    if (!traits || !traits->modules) {
+      lua_pushnil(L);
+      return 1;
+    }
+    lua_newtable(L);
+    size_t i = 0;
+    for (; i < 4096; ++i) {
+      const char* module = traits->modules[i];
+      if (!module) return 1;
+      lua_pushstring(L, module);
+      lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+    }
+    return luaL_error(L, "RimeTraits.modules is not terminated");
+  }
+  static int set_modules(lua_State* L) {
+    T* traits = smart_shared_ptr_todata<T>(L, 1);
+    if (!traits) return luaL_error(L, "invalid RimeTraits userdata");
+    if (lua_isnil(L, 2)) {
+      traits->modules = nullptr;
+      clear_value(L, 1, "modules");
+      return 0;
+    }
+    luaL_checktype(L, 2, LUA_TTABLE);
+    const size_t count = lua_rawlen(L, 2);
+    if (count > 4095)
+      return luaL_error(L, "RimeTraits.modules has too many entries");
+    for (size_t i = 1; i <= count; ++i) {
+      lua_rawgeti(L, 2, static_cast<lua_Integer>(i));
+      const bool is_string = lua_type(L, -1) == LUA_TSTRING;
+      lua_pop(L, 1);
+      if (!is_string)
+        return luaL_argerror(L, 2, "modules must contain only strings");
+    }
+    auto storage = std::make_shared<TraitsModulesStorage>();
+    storage->values.reserve(count);
+    storage->pointers.reserve(count + 1);
+    for (size_t i = 1; i <= count; ++i) {
+      lua_rawgeti(L, 2, static_cast<lua_Integer>(i));
+      storage->values.emplace_back(lua_tostring(L, -1));
+      lua_pop(L, 1);
+    }
+    for (auto& value : storage->values)
+      storage->pointers.push_back(value.c_str());
+    storage->pointers.push_back(nullptr);
+    LuaType<std::shared_ptr<TraitsModulesStorage>>::pushdata(L, storage);
+    retain_value(L, 1, -1, "modules");
+    lua_pop(L, 1);
+    traits->modules = storage->pointers.data();
+    return 0;
   }
 #define TRAITS_STRING_SETTER(member) \
   static int set_##member(lua_State* L) { \
@@ -1274,13 +1345,14 @@ namespace RimeTraitsReg {
   };
 
   static const luaL_Reg vars_get[] = {
+    {"data_size", SMART_GET(T, data_size)},
     {"shared_data_dir", SMART_GET(T, shared_data_dir)},
     {"user_data_dir", SMART_GET(T, user_data_dir)},
     {"distribution_name", SMART_GET(T, distribution_name)},
     {"distribution_code_name", SMART_GET(T, distribution_code_name)},
     {"distribution_version", SMART_GET(T, distribution_version)},
     {"app_name", SMART_GET(T, app_name)},
-    //{"modules", SMART_GET(T, modules)},
+    {"modules", get_modules},
     {"min_log_level", SMART_GET(T, min_log_level)},
     {"log_dir", SMART_GET(T, log_dir)},
     {"prebuilt_data_dir", SMART_GET(T, prebuilt_data_dir)},
@@ -1295,7 +1367,7 @@ namespace RimeTraitsReg {
     {"distribution_code_name", set_distribution_code_name},
     {"distribution_version", set_distribution_version},
     {"app_name", set_app_name},
-    //{"modules", SMART_SET(T, modules)},
+    {"modules", set_modules},
     {"min_log_level", SMART_SET(T, min_log_level)},
     {"log_dir", set_log_dir},
     {"prebuilt_data_dir", set_prebuilt_data_dir},
@@ -1846,7 +1918,7 @@ namespace RimeApiReg {
       if (result) {
         lua_pushstring(L, buffer.get());
       } else {
-        lua_pushboolean(L, false);
+        lua_pushnil(L);
       }
       return 1;
     } else if constexpr SIGNATURE_CHECK(size_t, RimeSessionId) {
