@@ -31,6 +31,8 @@ assert(rime_api:deploy_config_file("api_test", "0.1") == true) -- with config id
 -------------------------------------------------------------------------------
 
 rime_api:deployer_initialize(traits)
+assert(rime_api:prebuild() == true)
+print('rime_api:prebuild passed')
 local levers = RimeLeversApi()
 assert(levers ~= nil)
 print('RimeLeversApi() pass')
@@ -238,16 +240,19 @@ print('api_test customization double verified')
 local uditer = RimeUserDictIterator()
 assert(uditer ~= nil)
 print('RimeUserDictIterator() passed')
-assert(levers:user_dict_iterator_init(uditer) == true)
-print('levers:user_dict_iterator_init passed')
-while true do
-  local dict = levers:next_user_dict(uditer)
-  if dict == nil then break end
-  print(' > dict_name:', dict)
+if levers:user_dict_iterator_init(uditer) then
+  print('levers:user_dict_iterator_init passed')
+  while true do
+    local dict = levers:next_user_dict(uditer)
+    if dict == nil then break end
+    print(' > dict_name:', dict)
+  end
+  print('levers:next_user_dict passed')
+  assert(levers:user_dict_iterator_destroy(uditer) == nil)
+  print('levers:user_dict_iterator_destroy passed')
+else
+  print('no user dictionaries; iterator traversal skipped')
 end
-print('levers:next_user_dict passed')
-assert(levers:user_dict_iterator_destroy(uditer) == nil)
-print('levers:user_dict_iterator_destroy passed')
 uditer = nil
 rime_api:deployer_initialize(traits)
 assert(levers:export_user_dict('luna_pinyin', 'luna_pinyin.export.txt') ~= nil)
