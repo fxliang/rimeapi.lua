@@ -1,5 +1,6 @@
 #include "utils.h"
 #include "line_editor.h"
+#include <algorithm>
 
 typedef struct {
   RimeSessionId id;
@@ -29,13 +30,12 @@ extern "C" {
       const char** message_types,
       const char** message_values,
       size_t max_messages) {
-    size_t count = 0;
-    {
-      std::lock_guard<std::mutex> lock(noti_mutex);
-      lua_queue = msg_queue;
-      count = (msg_queue.size() < max_messages) ? msg_queue.size() : max_messages;
-      std::vector<RimeNotificationMsg>().swap(msg_queue); // clear the queue
-    }
+    if (max_messages == 0)
+      return 0;
+    std::lock_guard<std::mutex> lock(noti_mutex);
+    const size_t count = std::min(msg_queue.size(), max_messages);
+    lua_queue.assign(msg_queue.begin(), msg_queue.begin() + count);
+    msg_queue.erase(msg_queue.begin(), msg_queue.begin() + count);
     for (size_t i = 0; i < count; i++) {
       session_ids[i] = lua_queue[i].id;
       message_types[i] = lua_queue[i].type.c_str();
@@ -45,24 +45,29 @@ extern "C" {
   }
 
   RIME_API int init_bridge() {
-    if (!ensure_rime_api() || !RIME_API_AVAILABLE(rime_api, set_notification_handler))
+    if (!ensure_rime_api())
+      return -1;
+    std::lock_guard<std::mutex> lock(rime_api_mutex);
+    if (!rime_api || !RIME_API_AVAILABLE(rime_api, set_notification_handler))
       return -1;
     rime_api->set_notification_handler(on_message, nullptr);
     return 0;
   }
 
   RIME_API void finalize_bridge() {
-    if (rime_api && RIME_API_AVAILABLE(rime_api, set_notification_handler))
-      rime_api->set_notification_handler(nullptr, nullptr);
-    rime_api = nullptr;
-    FREE_RIME();
-    std::vector<RimeNotificationMsg>().swap(lua_queue); // clear the lua queue
+    {
+      std::lock_guard<std::mutex> lock(rime_api_mutex);
+      if (rime_api && RIME_API_AVAILABLE(rime_api, set_notification_handler))
+        rime_api->set_notification_handler(nullptr, nullptr);
+      rime_api = nullptr;
+      FREE_RIME();
+    }
     std::lock_guard<std::mutex> lock(noti_mutex);
-    std::vector<RimeNotificationMsg>().swap(msg_queue); // clear the queue
+    std::vector<RimeNotificationMsg>().swap(msg_queue);
   }
 
   RIME_API const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt) {
-    static LineEditor editor(4096);
+    thread_local LineEditor editor(4096);
     if (history && history_count > 0) {
       std::vector<std::string> hist_vec;
       hist_vec.reserve(history_count);
@@ -71,7 +76,7 @@ extern "C" {
       }
       editor.SetHistory(hist_vec);
     }
-    static std::string line_buffer;
+    thread_local std::string line_buffer;
     if (editor.ReadLine(prompt, &line_buffer, context, continuation_prompt)) {
       return line_buffer.c_str();
     }

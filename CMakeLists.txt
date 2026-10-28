@@ -125,7 +125,7 @@ elseif(NOT MSVC)
 endif()
 apply_common_settings(rimeapi_lua LINK_LUA)
 
-add_library(noti_bridge SHARED src/noti_bridge.cpp)
+add_library(noti_bridge SHARED src/noti_bridge.cpp src/line_editor.cc)
 apply_common_settings(noti_bridge)
 if(NOT WIN32)
   set_target_properties(noti_bridge PROPERTIES PREFIX "")

@@ -419,6 +419,32 @@ local safestr = function(s)
   local ok, res = pcall(ffi.string, s)
   if ok then return res else return nil end
 end
+local MAX_C_BUFFER_SIZE = 16 * 1024 * 1024
+local function checked_buffer_size(value, default)
+  value = value == nil and default or tonumber(value)
+  if type(value) ~= 'number' or value ~= math.floor(value) or
+      value < 1 or value > MAX_C_BUFFER_SIZE then
+    error("buffer size must be an integer between 1 and 16 MiB", 3)
+  end
+  return value
+end
+local function new_c_buffer(value, default)
+  local size = checked_buffer_size(value, default)
+  -- Keep one extra zero byte: librime's strncpy-based APIs may fill all `size`
+  -- bytes without writing a terminator.
+  return ffi.new("char[?]", size + 1), size
+end
+local function own_cstring(obj, field)
+  local value = safestr(obj._c[field])
+  if value == nil then
+    obj._c[field] = nil
+    obj._refs[field] = nil
+    return
+  end
+  local buffer = ffi.new("char[?]", #value + 1, value)
+  obj._refs[field] = buffer
+  obj._c[field] = ffi.cast("char *", buffer)
+end
 -------------------------------------------------------------------------------
 local function script_path()
   local fullpath = debug.getinfo(1,"S").source:sub(2)
@@ -601,40 +627,26 @@ function file_exists(path, cp)
   return false
 end
 -------------------------------------------------------------------------------
-local Set = {}
-Set.__index = Set
-function Set.new() return setmetatable({_data = {}}, Set) end
-function Set:insert(value) self._data[value] = true end
-function Set:erase(value) self._data[value] = nil end
-function Set:find(value) return self._data[value] ~= nil end
-function Set:values()
-  local out = {}
-  for k, _ in pairs(self._data) do out[#out + 1] = k end
-  return out
-end
 -------------------------------------------------------------------------------
-local cfg_borrowed_set = Set.new()
-local schemalist_borrowed_set = Set.new()
-local function is_config_borrowed(cfg) return cfg and cfg_borrowed_set:find(cfg) or false end
-local function is_schemalist_borrowed(schlist) return schlist and schemalist_borrowed_set:find(schlist) or false end
+local function is_config_borrowed(cfg)
+  return cfg and rawget(cfg, '_borrowed') == true or false
+end
+local function is_schemalist_borrowed(schlist)
+  return schlist and rawget(schlist, '_borrowed') == true or false
+end
 local function set_config_borrowed(cfg, borrowed, owner)
   if not cfg then return end
-  if borrowed then
-    cfg_borrowed_set:insert(cfg)
-    rawset(cfg, '_owner', owner)
-  else
-    cfg_borrowed_set:erase(cfg)
-    rawset(cfg, '_owner', nil)
-  end
+  rawset(cfg, '_borrowed', not not borrowed)
+  rawset(cfg, '_owner', borrowed and owner or nil)
 end
 local function set_schemalist_borrowed(schlist, owner)
   if not schlist then return end
-  schemalist_borrowed_set:insert(schlist)
+  rawset(schlist, '_borrowed', true)
   rawset(schlist, '_owner', owner)
 end
 local function clear_schemalist_borrowed(schlist)
   if not schlist then return end
-  schemalist_borrowed_set:erase(schlist)
+  rawset(schlist, '_borrowed', false)
   rawset(schlist, '_owner', nil)
 end
 -------------------------------------------------------------------------------
@@ -828,7 +840,7 @@ function RimeComposition()
   composition.sel_start = 0
   composition.sel_end = 0
   composition.preedit = nil
-  local obj = { _c = composition }
+  local obj = { _c = composition, _refs = {} }
   local mt = {
     __index = function(_, k)
       if k == 'length' then return tonumber(obj._c.length)
@@ -862,7 +874,7 @@ function RimeCandidate()
   candidate.text = nil
   candidate.comment = nil
   candidate.reserved = nil
-  local obj = { _c = candidate }
+  local obj = { _c = candidate, _refs = {} }
   local mt = {
     __index = function(_, k)
       if k == 'text' then return safestr(obj._c.text) or ''
@@ -904,6 +916,8 @@ function RimeCandidateListIterator()
       elseif k == 'candidate' then
         local cand = RimeCandidate()
         ffi.copy(cand._c, obj._c.candidate, ffi.sizeof("RimeCandidate"))
+        own_cstring(cand, "text")
+        own_cstring(cand, "comment")
         return cand
       end
     end,
@@ -922,7 +936,7 @@ function RimeMenu()
   menu.num_candidates = 0
   menu.candidates = nil
   menu.select_keys = nil
-  local obj = { _c = menu }
+  local obj = { _c = menu, _refs = {} }
   local mt = {
     __index = function(_, k)
       if k == 'page_size' then return tonumber(obj._c.page_size)
@@ -942,6 +956,8 @@ function RimeMenu()
           if not ok or cand_c == nil then break end
           local candidate = RimeCandidate()
           ffi.copy(candidate._c, cand_c, ffi.sizeof("RimeCandidate"))
+          own_cstring(candidate, "text")
+          own_cstring(candidate, "comment")
           out[#out + 1] = candidate
         end
         return out
@@ -965,10 +981,35 @@ function RimeContext()
       if k == 'composition' then
         local comp = RimeComposition()
         ffi.copy(comp._c, obj._c.composition, ffi.sizeof("RimeComposition"))
+        own_cstring(comp, "preedit")
         return comp
       elseif k == 'menu' then
         local menu = RimeMenu()
         ffi.copy(menu._c, obj._c.menu, ffi.sizeof("RimeMenu"))
+        own_cstring(menu, "select_keys")
+        local n = tonumber(menu._c.num_candidates) or 0
+        if n < 0 or n > 4096 then error("invalid RimeMenu.num_candidates") end
+        local source = obj._c.menu.candidates
+        if source ~= nil and n > 0 then
+          local copied = ffi.new("RimeCandidate[?]", n)
+          local string_refs = {}
+          for i = 0, n - 1 do
+            ffi.copy(copied[i], source[i], ffi.sizeof("RimeCandidate"))
+            for _, field in ipairs({"text", "comment"}) do
+              local value = safestr(copied[i][field])
+              if value ~= nil then
+                local buffer = ffi.new("char[?]", #value + 1, value)
+                string_refs[#string_refs + 1] = buffer
+                copied[i][field] = ffi.cast("char *", buffer)
+              end
+            end
+          end
+          menu._refs.candidates = copied
+          menu._refs.candidate_strings = string_refs
+          menu._c.candidates = copied
+        else
+          menu._c.candidates = nil
+        end
         return menu
       elseif k == 'commit_text_preview' then
         return safestr(obj._c.commit_text_preview)
@@ -976,11 +1017,18 @@ function RimeContext()
         local arr = obj._c.select_labels
         if arr == nil then return nil end
         local out = {}
-        local i = 0
-        while arr[i] ~= nil do
-          out[#out + 1] = ffi.string(arr[i])
-          i = i + 1
+        local count = tonumber(obj._c.menu.page_size) or 0
+        if count < 0 or count > 4096 then
+          error("invalid RimeContext menu.page_size")
         end
+        for i = 0, count - 1 do
+          if arr[i] == nil then
+            out[i + 1] = false
+          else
+            out[i + 1] = ffi.string(arr[i])
+          end
+        end
+        return out
       elseif k == 'type' then return 'RimeContext'
       end
     end,
@@ -1019,21 +1067,32 @@ function RimeConfig()
         end
       elseif k == 'get_string' then
         return function(_, key, buffer_size)
-          buffer_size = buffer_size or 1024
-          local buf = ffi.new("char[?]", buffer_size)
-          local res = fn("config_get_string")(obj._c, tostring(key), buf, tonumber(buffer_size))
+          local buf, size = new_c_buffer(buffer_size, 256)
+          local res = fn("config_get_string")(obj._c, tostring(key), buf, size)
           return res ~= 0 and safestr(buf) or nil
         end
       elseif k == 'get_cstring' then
         return function(_, key) return safestr(fn("config_get_cstring")(obj._c, tostring(key))) end
       elseif k == 'set_int' then
-        return function(_, key, value) return fn("config_set_int")(obj._c, tostring(key), tonumber(value)) ~= 0 end
+        return function(_, key, value)
+          if is_config_borrowed(obj) then return false end
+          return fn("config_set_int")(obj._c, tostring(key), tonumber(value)) ~= 0
+        end
       elseif k == 'set_double' then
-        return function(_, key, value) return fn("config_set_double")(obj._c, tostring(key), tonumber(value)) ~= 0 end
+        return function(_, key, value)
+          if is_config_borrowed(obj) then return false end
+          return fn("config_set_double")(obj._c, tostring(key), tonumber(value)) ~= 0
+        end
       elseif k == 'set_bool' then
-        return function(_, key, value) return fn("config_set_bool")(obj._c, tostring(key), value and 1 or 0) ~= 0 end
+        return function(_, key, value)
+          if is_config_borrowed(obj) then return false end
+          return fn("config_set_bool")(obj._c, tostring(key), value and 1 or 0) ~= 0
+        end
       elseif k == 'set_string' then
-        return function(_, key, value) return fn("config_set_string")(obj._c, tostring(key), tostring(value)) ~= 0 end
+        return function(_, key, value)
+          if is_config_borrowed(obj) then return false end
+          return fn("config_set_string")(obj._c, tostring(key), tostring(value)) ~= 0
+        end
       elseif k == 'open' or k == 'reload' then
         return function(_, config_id)
           if is_config_borrowed(obj) then return false end
@@ -1243,13 +1302,13 @@ function RimeSchemaInfo(ptr, owner)
 end
 
 function RimeSchemaListItem(ptr, owner)
-  local item
-  if ptr == nil or ptr == ffi.NULL then
-    item = ffi.new("RimeSchemaListItem")
-  else
-    item = ffi.cast("RimeSchemaListItem*", ptr)
+  local item = ffi.new("RimeSchemaListItem")
+  if ptr ~= nil and ptr ~= ffi.NULL then
+    ffi.copy(item, ptr, ffi.sizeof("RimeSchemaListItem"))
   end
-  local obj = { _c = item, _owner = owner }
+  local obj = { _c = item, _owner = owner, _refs = {} }
+  own_cstring(obj, "schema_id")
+  own_cstring(obj, "name")
   local mt = {
     __index = function(_, k)
       if k == 'schema_id' then return safestr(obj._c.schema_id) or ''
@@ -1277,6 +1336,7 @@ function RimeSchemaList()
         local n = tonumber(obj._c.size) or 0
         local arr = obj._c.list
         if arr == nil or n <= 0 then return {} end
+        if n > 4096 then error("invalid RimeSchemaList.size") end
         local out = {}
         for i = 0, n - 1 do
           local ok, item_c = pcall(function() return arr[i] end)
@@ -1427,9 +1487,15 @@ function RimeApi()
         return function(_, session_id) fn("clear_composition")(tosessionid(session_id)) return nil
         end
       elseif k == 'get_commit' then
-        return function(_, session_id, commit_obj) return fn("get_commit")(tosessionid(session_id), commit_obj._c) ~= 0 end
+        return function(_, session_id, commit_obj)
+          fn("free_commit")(commit_obj._c)
+          return fn("get_commit")(tosessionid(session_id), commit_obj._c) ~= 0
+        end
       elseif k == 'get_status' then
-        return function(_, session_id, status_obj) return fn("get_status")(tosessionid(session_id), status_obj._c) ~= 0 end
+        return function(_, session_id, status_obj)
+          fn("free_status")(status_obj._c)
+          return fn("get_status")(tosessionid(session_id), status_obj._c) ~= 0
+        end
       elseif k == 'get_schema_list' then
         return function(_, schemas)
           if is_schemalist_borrowed(schemas) then return false end
@@ -1442,15 +1508,20 @@ function RimeApi()
             local ok, levers_api = pcall(get_levers_api)
             if ok then
               local destroy = api_fn(levers_api, "RimeLeversApi", "schema_list_destroy")
-              if destroy then destroy(schemas._c) end
+              if destroy then
+                destroy(schemas._c)
+                clear_schemalist_borrowed(schemas)
+              end
             end
-            clear_schemalist_borrowed(schemas)
           else
             fn("free_schema_list")(schemas._c)
           end
         end
       elseif k == 'get_context' then
-        return function(_, session_id, context_obj) return fn("get_context")(tosessionid(session_id), context_obj._c) ~= 0 end
+        return function(_, session_id, context_obj)
+          fn("free_context")(context_obj._c)
+          return fn("get_context")(tosessionid(session_id), context_obj._c) ~= 0
+        end
       elseif k == 'free_commit' then
         return function(_, commit_obj) return fn("free_commit")(commit_obj._c) ~= 0 end
       elseif k == 'free_status' then
@@ -1459,6 +1530,8 @@ function RimeApi()
         return function(_, context_obj) return fn("free_context")(context_obj._c) ~= 0 end
       elseif k == 'candidate_list_begin' then
         return function(_, session_id, iterator_obj)
+          local end_fn = api_fn(obj._c, "RimeApi", "candidate_list_end")
+          if end_fn then end_fn(iterator_obj._c) end
           return fn("candidate_list_begin")(tosessionid(session_id), iterator_obj._c) ~= 0
         end
       elseif k == 'candidate_list_next' then
@@ -1524,9 +1597,8 @@ function RimeApi()
         end
       elseif k == 'get_property' then
         return function(_, session_id, prop, buffer_size)
-          buffer_size = buffer_size or 256
-          local buf = ffi.new("char[?]", buffer_size)
-          local res = fn("get_property")(tosessionid(session_id), tostring(prop), buf, tonumber(buffer_size))
+          local buf, size = new_c_buffer(buffer_size, 256)
+          local res = fn("get_property")(tosessionid(session_id), tostring(prop), buf, size)
           return res ~= 0 and safestr(buf) or nil
         end
       elseif k == 'config_open' then
@@ -1556,34 +1628,48 @@ function RimeApi()
         return function(_, session_id, schema_id) return fn("select_schema")(tosessionid(session_id), tostring(schema_id)) ~= 0 end
       elseif k == 'get_current_schema' then
         return function(_, session_id, len)
-          len = tonumber(len) or 256
-          local schema_id = ffi.new("char[256]")
-          local tmp = fn("get_current_schema")(tosessionid(session_id), schema_id, len)
+          local schema_id, size = new_c_buffer(len, 256)
+          local tmp = fn("get_current_schema")(tosessionid(session_id), schema_id, size)
           return tmp ~= 0 and safestr(schema_id) or nil
         end
       elseif k == 'config_update_signature' then
-        return function(_, config_obj, signer) return fn("config_update_signature")(config_obj._c, tostring(signer)) ~= 0 end
+        return function(_, config_obj, signer)
+          if is_config_borrowed(config_obj) then return false end
+          return fn("config_update_signature")(config_obj._c, tostring(signer)) ~= 0
+        end
       elseif k == 'config_begin_map' then
-        return function(_, iterator_obj, config_obj, key) return fn("config_begin_map")(iterator_obj._c, config_obj._c, tostring(key)) ~= 0 end
+        return function(_, iterator_obj, config_obj, key)
+          local end_fn = api_fn(obj._c, "RimeApi", "config_end")
+          if end_fn then end_fn(iterator_obj._c) end
+          return fn("config_begin_map")(iterator_obj._c, config_obj._c, tostring(key)) ~= 0
+        end
       elseif k == 'config_next' then
         return function(_, iterator_obj) return fn("config_next")(iterator_obj._c) ~= 0 end
       elseif k == 'config_end' then
         return function(_, iterator_obj) fn("config_end")(iterator_obj._c) return nil end
       elseif k == 'config_init' then
-        return function(_, config_obj) return fn("config_init")(config_obj._c) ~= 0 end
+        return function(_, config_obj)
+          if is_config_borrowed(config_obj) then return false end
+          return fn("config_init")(config_obj._c) ~= 0
+        end
       elseif k == 'config_load_string' then
-        return function(_, config_obj, yaml) return fn("config_load_string")(config_obj._c, tostring(yaml)) ~= 0 end
+        return function(_, config_obj, yaml)
+          if is_config_borrowed(config_obj) then return false end
+          return fn("config_load_string")(config_obj._c, tostring(yaml)) ~= 0
+        end
       elseif k == 'config_get_cstring' then
         return function(_, config_obj, key) return safestr(fn("config_get_cstring")(config_obj._c, tostring(key))) end
       elseif k == 'config_get_string' then
         return function(_, config_obj, key, buffer_size)
-          buffer_size = buffer_size or 1024
-          local buf = ffi.new("char[?]", buffer_size)
-          local res = fn("config_get_string")(config_obj._c, tostring(key), buf, tonumber(buffer_size))
+          local buf, size = new_c_buffer(buffer_size, 256)
+          local res = fn("config_get_string")(config_obj._c, tostring(key), buf, size)
           return res ~= 0 and safestr(buf) or nil
         end
       elseif k == 'config_set_string' then
-        return function(_, config_obj, key, value) return fn("config_set_string")(config_obj._c, tostring(key), tostring(value)) ~= 0 end
+        return function(_, config_obj, key, value)
+          if is_config_borrowed(config_obj) then return false end
+          return fn("config_set_string")(config_obj._c, tostring(key), tostring(value)) ~= 0
+        end
       elseif k == 'config_get_int' then
         return function(_, config_obj, key)
           local value = ffi.new("int[1]")
@@ -1591,7 +1677,10 @@ function RimeApi()
           return res ~= 0 and tonumber(value[0]) or nil
         end
       elseif k == 'config_set_int' then
-        return function(_, config_obj, key, value) return fn("config_set_int")(config_obj._c, tostring(key), tonumber(value)) ~= 0 end
+        return function(_, config_obj, key, value)
+          if is_config_borrowed(config_obj) then return false end
+          return fn("config_set_int")(config_obj._c, tostring(key), tonumber(value)) ~= 0
+        end
       elseif k == 'config_get_double' then
         return function(_, config_obj, key)
           local value = ffi.new("double[1]")
@@ -1599,7 +1688,10 @@ function RimeApi()
           return res ~= 0 and tonumber(value[0]) or nil
         end
       elseif k == 'config_set_double' then
-        return function(_, config_obj, key, value) return fn("config_set_double")(config_obj._c, tostring(key), tonumber(value)) ~= 0 end
+        return function(_, config_obj, key, value)
+          if is_config_borrowed(config_obj) then return false end
+          return fn("config_set_double")(config_obj._c, tostring(key), tonumber(value)) ~= 0
+        end
       elseif k == 'config_get_bool' then
         return function(_, config_obj, key)
           local value = ffi.new("int[1]")
@@ -1609,22 +1701,42 @@ function RimeApi()
         end
       elseif k == 'config_set_bool' then
         return function(_, config_obj, key, value)
+          if is_config_borrowed(config_obj) then return false end
           return fn("config_set_bool")(config_obj._c, tostring(key), value and 1 or 0) ~= 0
         end
       elseif k == 'config_get_item' then
-        return function(_, config_obj, key, value_obj) return fn("config_get_item")(config_obj._c, tostring(key), value_obj._c) ~= 0 end
+        return function(_, config_obj, key, value_obj)
+          if is_config_borrowed(value_obj) then return false end
+          return fn("config_get_item")(config_obj._c, tostring(key), value_obj._c) ~= 0
+        end
       elseif k == 'config_set_item' then
-        return function(_, config_obj, key, value_obj) return fn("config_set_item")(config_obj._c, tostring(key), value_obj._c) ~= 0 end
+        return function(_, config_obj, key, value_obj)
+          if is_config_borrowed(config_obj) then return false end
+          return fn("config_set_item")(config_obj._c, tostring(key), value_obj._c) ~= 0
+        end
       elseif k == 'config_clear' then
-        return function(_, config_obj, key) return fn("config_clear")(config_obj._c, tostring(key)) ~= 0 end
+        return function(_, config_obj, key)
+          if is_config_borrowed(config_obj) then return false end
+          return fn("config_clear")(config_obj._c, tostring(key)) ~= 0
+        end
       elseif k == 'config_create_list' then
-        return function(_, config_obj, key) return fn("config_create_list")(config_obj._c, tostring(key)) ~= 0 end
+        return function(_, config_obj, key)
+          if is_config_borrowed(config_obj) then return false end
+          return fn("config_create_list")(config_obj._c, tostring(key)) ~= 0
+        end
       elseif k == 'config_create_map' then
-        return function(_, config_obj, key) return fn("config_create_map")(config_obj._c, tostring(key)) ~= 0 end
+        return function(_, config_obj, key)
+          if is_config_borrowed(config_obj) then return false end
+          return fn("config_create_map")(config_obj._c, tostring(key)) ~= 0
+        end
       elseif k == 'config_list_size' then
         return function(_, config_obj, key) return tonumber(fn("config_list_size")(config_obj._c, tostring(key))) end
       elseif k == 'config_begin_list' then
-        return function(_, iterator_obj, config_obj, key) return fn("config_begin_list")(iterator_obj._c, config_obj._c, tostring(key)) ~= 0 end
+        return function(_, iterator_obj, config_obj, key)
+          local end_fn = api_fn(obj._c, "RimeApi", "config_end")
+          if end_fn then end_fn(iterator_obj._c) end
+          return fn("config_begin_list")(iterator_obj._c, config_obj._c, tostring(key)) ~= 0
+        end
       elseif k == 'get_input' then
         return function(_, session_id) return safestr(fn("get_input")(tosessionid(session_id))) end
       elseif k == 'get_caret_pos' then
@@ -1638,7 +1750,11 @@ function RimeApi()
       elseif k == 'select_candidate_on_current_page' then
         return function(_, session_id, index) return fn("select_candidate_on_current_page")(tosessionid(session_id), tonumber(index)) ~= 0 end
       elseif k == 'candidate_list_from_index' then
-        return function(_, session_id, iterator_obj, index) return fn("candidate_list_from_index")(tosessionid(session_id), iterator_obj._c, tonumber(index)) ~= 0 end
+        return function(_, session_id, iterator_obj, index)
+          local end_fn = api_fn(obj._c, "RimeApi", "candidate_list_end")
+          if end_fn then end_fn(iterator_obj._c) end
+          return fn("candidate_list_from_index")(tosessionid(session_id), iterator_obj._c, tonumber(index)) ~= 0
+        end
       elseif k == 'get_state_label' then
         return function(_, session_id, option_name, state) return safestr(fn("get_state_label")(tosessionid(session_id), tostring(option_name), state and 1 or 0)) end
       elseif k == 'delete_candidate' then
@@ -1686,44 +1802,38 @@ function RimeApi()
         return function(_) return safestr(fn("get_staging_dir")()) end
       elseif k == 'get_user_data_sync_dir' then
         return function(_, buffer_size) 
-          buffer_size = buffer_size or 1024
-          local buf = ffi.new("char[?]", buffer_size)
-          fn("get_user_data_sync_dir")(buf, tonumber(buffer_size))
+          local buf, size = new_c_buffer(buffer_size, 1024)
+          fn("get_user_data_sync_dir")(buf, size)
           return safestr(buf)
         end
       elseif k == 'get_user_data_dir_s' then
         return function(_, buffer_size)
-          buffer_size = buffer_size or 1024
-          local buf = ffi.new("char[?]", buffer_size)
-          fn("get_user_data_dir_s")(buf, tonumber(buffer_size))
+          local buf, size = new_c_buffer(buffer_size, 1024)
+          fn("get_user_data_dir_s")(buf, size)
           return safestr(buf)
         end
       elseif k == 'get_shared_data_dir_s' then
         return function(_, buffer_size)
-          buffer_size = buffer_size or 1024
-          local buf = ffi.new("char[?]", buffer_size)
-          fn("get_shared_data_dir_s")(buf, tonumber(buffer_size))
+          local buf, size = new_c_buffer(buffer_size, 1024)
+          fn("get_shared_data_dir_s")(buf, size)
           return safestr(buf)
         end
       elseif k == 'get_prebuilt_data_dir_s' then
         return function(_, buffer_size)
-          buffer_size = buffer_size or 1024
-          local buf = ffi.new("char[?]", buffer_size)
-          fn("get_prebuilt_data_dir_s")(buf, tonumber(buffer_size))
+          local buf, size = new_c_buffer(buffer_size, 1024)
+          fn("get_prebuilt_data_dir_s")(buf, size)
           return safestr(buf)
         end
       elseif k == 'get_sync_dir_s' then
         return function(_, buffer_size)
-          buffer_size = buffer_size or 1024
-          local buf = ffi.new("char[?]", buffer_size)
-          fn("get_sync_dir_s")(buf, tonumber(buffer_size))
+          local buf, size = new_c_buffer(buffer_size, 1024)
+          fn("get_sync_dir_s")(buf, size)
           return safestr(buf)
         end
       elseif k == 'get_staging_dir_s' then
         return function(_, buffer_size)
-          buffer_size = buffer_size or 1024
-          local buf = ffi.new("char[?]", buffer_size)
-          fn("get_staging_dir_s")(buf, tonumber(buffer_size))
+          local buf, size = new_c_buffer(buffer_size, 1024)
+          fn("get_staging_dir_s")(buf, size)
           return safestr(buf)
         end
       elseif k == 'get_version' then
@@ -1751,11 +1861,19 @@ function RimeApi()
 end
 
 function RimeCustomSettings(ptr)
-  return { _c = ffi.cast("RimeCustomSettings*", ptr), type = 'RimeCustomSettings' }
+  return {
+    _c = ffi.cast("RimeCustomSettings*", ptr),
+    _destroyed = false,
+    type = 'RimeCustomSettings'
+  }
 end
 
 function RimeSwitcherSettings(ptr)
-  return {_c = ffi.cast("RimeSwitcherSettings*", ptr), type = 'RimeSwitcherSettings' }
+  return {
+    _c = ffi.cast("RimeSwitcherSettings*", ptr),
+    _destroyed = false,
+    type = 'RimeSwitcherSettings'
+  }
 end
 
 function RimeUserDictIterator()
@@ -1766,6 +1884,9 @@ local function check_settings(settings)
   if type(settings) ~= 'table' or
       (settings.type ~= 'RimeCustomSettings' and settings.type ~= 'RimeSwitcherSettings') then
     error("RimeCustomSettings or RimeSwitcherSettings expected")
+  end
+  if rawget(settings, '_destroyed') then
+    error("RimeCustomSettings has already been destroyed")
   end
   return settings
 end
@@ -1843,6 +1964,8 @@ local function wrap_levers_api(get_pointer)
         return function(_, settings)
           settings = check_settings(settings)
           fn("custom_settings_destroy")(settings._c)
+          rawset(settings, '_destroyed', true)
+          rawset(settings, '_c', nil)
           return nil
         end
       elseif k == 'switcher_settings_init' then
@@ -1853,6 +1976,8 @@ local function wrap_levers_api(get_pointer)
         end
       elseif k == 'get_available_schema_list' then
         return function(_, switcher_settings, schema_list)
+          switcher_settings = check_settings(switcher_settings)
+          if is_schemalist_borrowed(schema_list) then return false end
           local ret = fn("get_available_schema_list")(switcher_settings._c, schema_list._c) ~= 0
           if ret then set_schemalist_borrowed(schema_list, switcher_settings) end
           return ret
@@ -1865,6 +1990,10 @@ local function wrap_levers_api(get_pointer)
       elseif k == 'settings_get_config' then
         return function(_, switcher_settings, config_obj)
           switcher_settings = check_settings(switcher_settings)
+          if is_config_borrowed(config_obj) then return false end
+          if config_obj._c.ptr ~= nil then
+            fn("config_close")(config_obj._c)
+          end
           local ret = fn("settings_get_config")(switcher_settings._c, config_obj._c) ~= 0
           if ret then set_config_borrowed(config_obj, true, switcher_settings) end
           return ret
@@ -1924,6 +2053,8 @@ local function wrap_levers_api(get_pointer)
         end
       elseif k == 'get_selected_schema_list' then
         return function(_, switcher_settings, schema_list)
+          switcher_settings = check_settings(switcher_settings)
+          if is_schemalist_borrowed(schema_list) then return false end
           local ret = fn("get_selected_schema_list")(switcher_settings._c, schema_list._c) ~= 0
           if ret then set_schemalist_borrowed(schema_list, switcher_settings) end
           return ret
@@ -1945,8 +2076,10 @@ local function wrap_levers_api(get_pointer)
         end
       elseif k == 'schema_list_destroy' then
         return function(_, schema_list)
-          fn("schema_list_destroy")(schema_list._c)
-          clear_schemalist_borrowed(schema_list)
+          if is_schemalist_borrowed(schema_list) then
+            fn("schema_list_destroy")(schema_list._c)
+            clear_schemalist_borrowed(schema_list)
+          end
           return nil
         end
       else

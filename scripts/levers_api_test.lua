@@ -46,6 +46,10 @@ if settings then
     print('levers:save_settings passed')
   end
   assert(levers:custom_settings_destroy(settings) == nil)
+  local destroyed_use = pcall(function() return levers:is_first_run(settings) end)
+  assert(destroyed_use == false)
+  local destroyed_twice = pcall(function() return levers:custom_settings_destroy(settings) end)
+  assert(destroyed_twice == false)
   print('levers:custom_settings_destroy passed')
 end
 local switcher_settings = levers:switcher_settings_init()
@@ -189,6 +193,10 @@ assert(borrowed_config:open("default") == false)
 assert(borrowed_config:reload("default") == false)
 assert(rime_api:config_open("default", borrowed_config) == false)
 assert(borrowed_config:close() == false)
+assert(borrowed_config:set_int("menu/page_size", 99) == false)
+assert(rime_api:config_set_int(borrowed_config, "menu/page_size", 99) == false)
+assert(rime_api:config_load_string(borrowed_config, "menu/page_size: 99") == false)
+assert(borrowed_config:get_int("menu/page_size") == 10)
 print('borrowed config owner lifetime passed')
 borrowed_config = nil
 collectgarbage('collect')

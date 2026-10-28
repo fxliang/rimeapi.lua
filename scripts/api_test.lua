@@ -105,6 +105,7 @@ assert(rime_api:select_schema(session, "luna_pinyin") ~= nil)
 print('rime_api:select_schema passed')
 --rime_api:drain_notifications()
 assert(rime_api:get_current_schema(session) == "luna_pinyin")
+assert(rime_api:get_current_schema(session, 512) == "luna_pinyin")
 print('rime_api:get_current_schema passed: ')
 ----------------------------------------------------------------
 -- test for process_key press a
@@ -137,6 +138,10 @@ assert(context.composition ~= nil)
 assert(context.menu ~= nil)
 assert(context.select_labels == nil)
 assert(context.commit_text_preview == "啊")
+local retained_composition = context.composition
+local retained_menu = context.menu
+local retained_candidate = retained_menu.candidates[1]
+assert(retained_composition.preedit == "a" and retained_candidate.text == "啊")
 print('RimeContext fields passed')
 assert(context.composition.preedit == "a")
 assert(context.composition.length == 1)
@@ -230,13 +235,19 @@ assert(candListIter ~= nil)
 print('RimeCandidateIterator() passed')
 assert(rime_api:candidate_list_begin(session, candListIter) == true)
 print('rime_api:candidate_list_begin passed')
+local retained_cand
 while rime_api:candidate_list_next(candListIter) do
   local cand = candListIter.candidate
   assert(cand ~= nil)
+  retained_cand = cand
   -- print(string.format("%d: %s", candListIter.index, cand.text))
 end
+assert(retained_cand ~= nil and retained_cand.text ~= '')
 assert(rime_api:candidate_list_end(candListIter) == nil)
+collectgarbage('collect')
+assert(retained_cand.text ~= '')
 print('rime_api:candidate_list_end passed')
+print('candidate iterator child lifetime passed')
 assert(rime_api:candidate_list_from_index(session, candListIter, 1) == true)
 while rime_api:candidate_list_next(candListIter) do
   local cand = candListIter.candidate
@@ -252,7 +263,13 @@ print('rime_api:free_commit passed')
 assert(rime_api:free_status(status) == true)
 print('rime_api:free_status passed')
 assert(rime_api:free_context(context) == true)
+context = nil
+collectgarbage('collect')
+collectgarbage('collect')
+assert(retained_composition.preedit == "a")
+assert(retained_candidate.text == "啊")
 print('rime_api:free_context passed')
+print('context child lifetime passed')
 ----------------------------------------------------------------
 assert(rime_api:set_option(session, "ascii_mode", true) == nil)
 rime_api:drain_notifications()
@@ -274,10 +291,14 @@ assert(type(schemas.list) == 'table' and #schemas.list == 2)
 assert(schemas.size == #schemas.list)
 print('RimeSchemaList fields passed: size=' .. schemas.size)
 -- schema_info is nil when rime_api:get_schema_list(schemas)
-assert(schemas.list[1].schema_id == "luna_pinyin" and schemas.list[1].name == "朙月拼音" and schemas.list[1].schema_info == nil)
-print('RimeSchemaListItem fields passed: schema_id=' .. schemas.list[1].schema_id .. ', name=' .. schemas.list[1].name .. ', schema_info=' .. tostring(schemas.list[1].schema_info))
+local retained_schema_item = schemas.list[1]
+assert(retained_schema_item.schema_id == "luna_pinyin" and retained_schema_item.name == "朙月拼音" and retained_schema_item.schema_info == nil)
+print('RimeSchemaListItem fields passed: schema_id=' .. retained_schema_item.schema_id .. ', name=' .. retained_schema_item.name .. ', schema_info=' .. tostring(retained_schema_item.schema_info))
 assert(rime_api:free_schema_list(schemas) == nil)
+collectgarbage('collect')
+assert(retained_schema_item.schema_id == "luna_pinyin" and retained_schema_item.name == "朙月拼音")
 print('rime_api:free_schema_list passed')
+print('schema list item lifetime passed')
 schemas = nil
 ----------------------------------------------------------------
 assert(rime_api:schema_open("luna_pinyin", RimeConfig()) == true)
@@ -324,6 +345,10 @@ assert(rime_api:config_get_string(config, "a_string", 256) == "a_string")
 print('rime_api:config_get_string passed')
 assert(rime_api:config_get_string(config, "a_string") == "a_string")
 print('rime_api:config_get_string without buffer size passed')
+local truncated = rime_api:config_get_string(config, "a_string", 2)
+assert(type(truncated) == "string" and #truncated <= 2)
+assert(config:get_string("a_string", 2) ~= nil)
+print('truncated string buffers passed')
 assert(rime_api:config_get_string(config, "nonexistent_key") == nil)
 print('rime_api:config_get_string for nonexistent key passed')
 assert(config:set_string("a_string", "string_a") == true)
