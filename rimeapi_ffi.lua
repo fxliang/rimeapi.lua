@@ -628,6 +628,27 @@ function file_exists(path, cp)
 end
 -------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
+local borrowed_aliases = setmetatable({}, {__mode = 'k'})
+local function add_borrowed_alias(owner, obj)
+  if type(owner) ~= 'table' or obj == nil then return end
+  local set = borrowed_aliases[owner]
+  if not set then
+    set = setmetatable({}, {__mode = 'k'})
+    borrowed_aliases[owner] = set
+  end
+  set[obj] = true
+end
+local function remove_borrowed_alias(owner, obj)
+  if type(owner) ~= 'table' or obj == nil then return end
+  local set = borrowed_aliases[owner]
+  if not set then return end
+  set[obj] = nil
+  if next(set) == nil then borrowed_aliases[owner] = nil end
+end
+local function has_borrowed_alias(owner)
+  local set = type(owner) == 'table' and borrowed_aliases[owner] or nil
+  return set ~= nil and next(set) ~= nil
+end
 local function is_config_borrowed(cfg)
   return cfg and rawget(cfg, '_borrowed') == true or false
 end
@@ -636,16 +657,24 @@ local function is_schemalist_borrowed(schlist)
 end
 local function set_config_borrowed(cfg, borrowed, owner)
   if not cfg then return end
+  local old_owner = rawget(cfg, '_owner')
+  if old_owner then remove_borrowed_alias(old_owner, cfg) end
   rawset(cfg, '_borrowed', not not borrowed)
   rawset(cfg, '_owner', borrowed and owner or nil)
+  if borrowed then add_borrowed_alias(owner, cfg) end
 end
 local function set_schemalist_borrowed(schlist, owner)
   if not schlist then return end
+  local old_owner = rawget(schlist, '_owner')
+  if old_owner then remove_borrowed_alias(old_owner, schlist) end
   rawset(schlist, '_borrowed', true)
   rawset(schlist, '_owner', owner)
+  add_borrowed_alias(owner, schlist)
 end
 local function clear_schemalist_borrowed(schlist)
   if not schlist then return end
+  local old_owner = rawget(schlist, '_owner')
+  if old_owner then remove_borrowed_alias(old_owner, schlist) end
   rawset(schlist, '_borrowed', false)
   rawset(schlist, '_owner', nil)
 end
@@ -1963,9 +1992,24 @@ local function wrap_levers_api(get_pointer)
       elseif k == 'custom_settings_destroy' then
         return function(_, settings)
           settings = check_settings(settings)
-          fn("custom_settings_destroy")(settings._c)
-          rawset(settings, '_destroyed', true)
-          rawset(settings, '_c', nil)
+          if has_borrowed_alias(settings) then
+            rawset(settings, '_destroyed', true)
+            local ptr = settings._c
+            local guard = ffi.gc(ffi.new("uint8_t[1]"), function()
+              local ok, levers_api = pcall(get_levers_api)
+              if not ok then return end
+              local destroy = api_fn(levers_api, "RimeLeversApi",
+                                      "custom_settings_destroy")
+              if destroy then
+                destroy(ffi.cast("RimeCustomSettings*", ptr))
+              end
+            end)
+            rawset(settings, '_deferred_destroy', guard)
+          else
+            fn("custom_settings_destroy")(settings._c)
+            rawset(settings, '_destroyed', true)
+            rawset(settings, '_c', nil)
+          end
           return nil
         end
       elseif k == 'switcher_settings_init' then
@@ -1978,6 +2022,10 @@ local function wrap_levers_api(get_pointer)
         return function(_, switcher_settings, schema_list)
           switcher_settings = check_settings(switcher_settings)
           if is_schemalist_borrowed(schema_list) then return false end
+          if schema_list._c.list ~= nil then
+            local free_list = api_fn(ensure_api(), "RimeApi", "free_schema_list")
+            if free_list then free_list(schema_list._c) end
+          end
           local ret = fn("get_available_schema_list")(switcher_settings._c, schema_list._c) ~= 0
           if ret then set_schemalist_borrowed(schema_list, switcher_settings) end
           return ret
@@ -2055,6 +2103,10 @@ local function wrap_levers_api(get_pointer)
         return function(_, switcher_settings, schema_list)
           switcher_settings = check_settings(switcher_settings)
           if is_schemalist_borrowed(schema_list) then return false end
+          if schema_list._c.list ~= nil then
+            local free_list = api_fn(ensure_api(), "RimeApi", "free_schema_list")
+            if free_list then free_list(schema_list._c) end
+          end
           local ret = fn("get_selected_schema_list")(switcher_settings._c, schema_list._c) ~= 0
           if ret then set_schemalist_borrowed(schema_list, switcher_settings) end
           return ret

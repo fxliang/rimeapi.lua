@@ -356,6 +356,23 @@ static std::shared_ptr<void> lua_settings_owner(lua_State* L, int index) {
   return {};
 }
 
+static bool settings_has_borrowed_alias(void* owner) {
+  if (!owner) return false;
+  {
+    std::lock_guard<std::mutex> lk(cfg_borrowed_mutex);
+    for (const auto& entry : cfg_borrowed_owners) {
+      if (entry.second.get() == owner) return true;
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
+    for (const auto& entry : schemalist_borrowed_owners) {
+      if (entry.second.get() == owner) return true;
+    }
+  }
+  return false;
+}
+
 static void push_owner_uservalue(
     lua_State* L, int userdata_index, const std::shared_ptr<void>& owner) {
   if (!owner)
@@ -2036,8 +2053,8 @@ namespace RimeApiReg {
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, Bool) {
       // change_page(session_id, Bool)
       RimeSessionId session_id = RimeSession_todata(L, 2);
-      Bool val = lua_tointeger(L, 3);
-      Bool result = func_ptr(session_id, (Bool)val);
+      Bool val = lua_toboolean(L, 3);
+      Bool result = func_ptr(session_id, val);
       lua_pushboolean(L, result);
       return 1;
     } else {
@@ -2388,9 +2405,11 @@ namespace RimeLeversApiReg {
       return 1;
     } else if constexpr SIGNATURE_CHECK(void, RimeCustomSettings*) {
       RimeCustomSettings* settings = lua_to_custom_settings(L, 2);
-      func_ptr(settings);
       if (settings && strcmp(func_name, "custom_settings_destroy") == 0) {
-        mark_levers_settings_destroyed(settings);
+        if (!settings_has_borrowed_alias(settings)) {
+          func_ptr(settings);
+          mark_levers_settings_destroyed(settings);
+        }
         if (luaL_testudata(L, 2, LuaType<std::shared_ptr<RimeCustomSettings>>::type()->name())) {
           auto &sp = LuaType<std::shared_ptr<RimeCustomSettings>>::todata(L, 2);
           sp.reset();
@@ -2398,7 +2417,9 @@ namespace RimeLeversApiReg {
           auto &sp = LuaType<std::shared_ptr<RimeSwitcherSettings>>::todata(L, 2);
           sp.reset();
         }
+        return 0;
       }
+      func_ptr(settings);
       return 0;
     } else if constexpr SIGNATURE_CHECK(RimeSwitcherSettings*, ) {
       // switcher_settings_init()
@@ -2726,14 +2747,16 @@ static const fs::path get_path_from_lua(lua_State* L, int index) {
 
 static int file_exists(lua_State* L) {
   fs::path p = get_path_from_lua(L, 1);
-  bool ret = fs::exists(p);
+  std::error_code ec;
+  bool ret = fs::exists(p, ec) && !ec;
   lua_pushboolean(L, ret);
   return 1;
 }
 
 static int os_isdir(lua_State* L) {
   auto p = get_path_from_lua(L, 1);
-  bool ret = fs::is_directory(p);
+  std::error_code ec;
+  bool ret = fs::is_directory(p, ec) && !ec;
   lua_pushboolean(L, ret);
   return 1;
 }

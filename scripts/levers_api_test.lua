@@ -105,6 +105,11 @@ if levers:load_settings(switcher_settings) then
       assert(v.name ~= nil)
     end
   end
+  local reuse_list = RimeSchemaList()
+  assert(rime_api:get_schema_list(reuse_list) == true)
+  assert(levers:get_available_schema_list(switcher_settings, reuse_list) == true)
+  assert(levers:schema_list_destroy(reuse_list) == nil)
+  print('reused schema list passed')
   -- schema list 
   local schema_list = {'luna_pinyin', 'cangjie5'}
   assert(levers:select_schemas(switcher_settings, schema_list, 2) == true)
@@ -200,6 +205,18 @@ assert(borrowed_config:get_int("menu/page_size") == 10)
 print('borrowed config owner lifetime passed')
 borrowed_config = nil
 collectgarbage('collect')
+
+local deferred_owner = levers:custom_settings_init('default', "rimeapi.lua")
+assert(deferred_owner ~= nil and levers:load_settings(deferred_owner) == true)
+local deferred_config = RimeConfig()
+assert(levers:settings_get_config(deferred_owner, deferred_config) == true)
+assert(levers:custom_settings_destroy(deferred_owner) == nil)
+assert(deferred_config:get_int("menu/page_size") == 10)
+deferred_owner = nil
+deferred_config = nil
+collectgarbage('collect')
+collectgarbage('collect')
+print('borrowed config survives deferred settings destroy passed')
 
 local default = RimeConfig()
 default:open("default")
