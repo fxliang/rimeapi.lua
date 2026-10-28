@@ -8,6 +8,7 @@
 #include <typeinfo>
 #include <vector>
 #include <set>
+#include <unordered_map>
 #include <cstring>
 
 #ifdef __GNUC__

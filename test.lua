@@ -53,6 +53,14 @@ local lua = jit and 'luajit' or 'lua'
 local ext = package.config:sub(1,1) == '\\' and '.exe' or ''
 local cmd_runner = lua .. ext
 local orig_cp = set_console_codepage(65001)
+local test_user_dir = os.getenv("RIMEAPI_TEST_USER_DIR")
+if not test_user_dir or test_user_dir == "" then
+  local identity = tostring({}):match("0x(%x+)") or tostring(os.clock()):gsub("[^%w]", "")
+  local temp_dir = os.getenv("TMPDIR") or os.getenv("TEMP") or "."
+  local sep = package.config:sub(1, 1)
+  test_user_dir = temp_dir .. sep .. "rimeapi_test_" .. tostring(os.time()) .. "_" .. identity
+end
+RIMEAPI_TEST_USER_DIR = test_user_dir
 if #arg == 1 and arg[1] == '-h' then
   -- list modules in ./scripts/
   local function listLuaFiles(dir)

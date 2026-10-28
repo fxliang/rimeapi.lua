@@ -40,6 +40,16 @@ function(apply_common_settings target)
     $<$<CONFIG:Debug>:DEBUG>
     $<$<NOT:$<CONFIG:Debug>>:NDEBUG>)
 
+  foreach(RIME_INCLUDE_DIR
+      "${CMAKE_SOURCE_DIR}/librime/src"
+      "${CMAKE_SOURCE_DIR}/dist/include"
+      "${CMAKE_SOURCE_DIR}/include")
+    if(EXISTS "${RIME_INCLUDE_DIR}/rime_api.h")
+      target_include_directories(${target} PRIVATE "${RIME_INCLUDE_DIR}")
+      break()
+    endif()
+  endforeach()
+
   if(WIN32)
     target_include_directories(${target} PRIVATE ${CMAKE_SOURCE_DIR}/include)
 

@@ -164,7 +164,7 @@ local function print_menu(menu)
     menu.is_last_page == true and "$" or " ",
     menu.page_size))
   for i = 1, menu.num_candidates do
-    local highlight = i == menu.highlighted_candidate_index
+    local highlight = (i - 1) == menu.highlighted_candidate_index
     print(string.format("%d. %s%s%s%s", i,
       highlight and "[" or " ",
       menu.candidates[i].text,
@@ -294,8 +294,7 @@ local function main()
   while continue do
     local input = readline(prompt)
     if input == nil then
-      if status == 'interrupt' then
-      else break end
+      break
     elseif input == '' then
       -- ignore truly empty submissions while allowing whitespace
     else

@@ -21,7 +21,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        maker: [xmake]
+        maker: [xmake, cmake]
     steps:
 
       - uses: actions/checkout@v4
@@ -84,7 +84,7 @@ jobs:
           cp ./rime_api_console.lua ./rimeapi.lua-macos-dist/
           cp ./rime_deployer.lua ./rimeapi.lua-macos-dist/
           cp ./librime.dylib ./rimeapi.lua-macos-dist/
-          cp -r ./rime-plugins ./rimeapi.lua-macos-dist/
+          if [ -d ./rime-plugins ]; then cp -r ./rime-plugins ./rimeapi.lua-macos-dist/; fi
           cp ./LICENSE ./rimeapi.lua-macos-dist/
           cp ./schema_tester.lua ./rimeapi.lua-macos-dist/
           cp ./schema_tester_config.lua ./rimeapi.lua-macos-dist/
@@ -92,6 +92,7 @@ jobs:
           cp ./lua ./rimeapi.lua-macos-dist/
 
       - name: tar artifact
+        if: matrix.maker == 'xmake'
         run: tar czf rimeapi.lua-macos-dist.tar.gz ./rimeapi.lua-macos-dist/
 
       - name: upload artifact
@@ -105,13 +106,19 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        maker: [xmake]
+        maker: [xmake, cmake]
 
     steps:
 
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: update librime to latest
+        working-directory: librime
+        run: |
+          git fetch origin HEAD
+          git checkout --detach FETCH_HEAD
 
       - name: compute librime short hash
         id: librime-hash
@@ -206,6 +213,7 @@ jobs:
           cp ./lua ./rimeapi.lua-ubuntu24.04-dist/
 
       - name: tar artifact
+        if: matrix.maker == 'xmake'
         run: tar czf rimeapi.lua-ubuntu24.04-dist.tar.gz ./rimeapi.lua-ubuntu24.04-dist/
 
       - name: upload artifact
@@ -220,7 +228,7 @@ jobs:
     strategy:
       matrix:
         arch: [x64, x86]
-        maker: [xmake]
+        maker: [xmake, cmake]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -243,7 +251,7 @@ jobs:
             shared/opencc
           key: ${{ runner.os }}-librime-latest-${{ matrix.arch }}
           restore-keys: |
-            ${{ runner.os }}-librime-latest-{{ matrix.arch }}
+            ${{ runner.os }}-librime-latest-${{ matrix.arch }}
 
       - name: Copy Rime files
         if: steps.cache-librime.outputs.cache-hit != 'true'
@@ -319,6 +327,7 @@ jobs:
           cp ./lua.exe ./rimeapi.lua-win${{ matrix.arch }}-dist/
 
       - name: zip artifact
+        if: matrix.maker == 'xmake'
         run: 7z a -tzip rimeapi.lua-win${{ matrix.arch }}-dist.zip .\rimeapi.lua-win${{ matrix.arch }}-dist
 
       - name: upload artifact

@@ -13,19 +13,20 @@ print('RimeTraits.modules parity passed')
 local traits = RimeTraits()
 traits.app_name = "rimeapi"
 traits.shared_data_dir = "shared"
-traits.user_data_dir = "api_test"
+local test_user_dir = rawget(_G, "RIMEAPI_TEST_USER_DIR") or os.getenv("RIMEAPI_TEST_USER_DIR") or "api_test"
+traits.user_data_dir = test_user_dir
 traits.prebuilt_data_dir = "shared"
 traits.distribution_name = "rimeapi"
 traits.distribution_code_name = "rimeapi"
 traits.distribution_version = "1.0.0"
-traits.log_dir = "log"
+traits.log_dir = test_user_dir .. "/log"
 if not os.mkdir then
   -- check system is windows or unix-like
   local is_windows = package.config:sub(1, 1) == '\\'
   local mkdir_cmd = is_windows and "md " or "mkdir -p "
-  os.execute(mkdir_cmd .. traits.shared_data_dir)
-  os.execute(mkdir_cmd .. traits.user_data_dir)
-  os.execute(mkdir_cmd .. traits.log_dir)
+  os.execute(mkdir_cmd .. '"' .. traits.shared_data_dir .. '"')
+  os.execute(mkdir_cmd .. '"' .. traits.user_data_dir .. '"')
+  os.execute(mkdir_cmd .. '"' .. traits.log_dir .. '"')
 else
   assert(os.mkdir(traits.shared_data_dir) == true)
   assert(os.mkdir(traits.user_data_dir) == true)
@@ -33,12 +34,16 @@ else
 end
 rime_api:setup(traits)
 print('rime_api:setup passed')
-rime_api:set_notification_handler(function(_, id, t, v)
-  print(string.format('lua > [%s] %s %s', tostring(id), tostring(t), tostring(v)))
+local notification_count = 0
+rime_api:set_notification_handler(function()
+  notification_count = notification_count + 1
 end)
 print('rime_api:set_notification_handler passed')
 rime_api:initialize(traits)
 print('rime_api:initialize passed')
+rime_api:deployer_initialize(traits)
+assert(rime_api:prebuild() == true)
+print('rime_api:prebuild passed')
 local transient_api = RimeApi()
 transient_api = nil
 collectgarbage('collect')
@@ -82,7 +87,7 @@ if maintenance_started then
 end
 print('rime_api:start_maintenance passed')
 assert(type(rime_api:is_maintenance_mode()) == "boolean")
-assert(type(rime_api:run_task("rimeapi_unknown_task")) == "boolean")
+assert(type(rime_api:run_task("cleanup_trash")) == "boolean")
 print('rime_api:is_maintenance_mode and run_task return booleans passed')
 
 rime_api:drain_notifications()
@@ -295,6 +300,16 @@ rime_api:drain_notifications()
 assert(rime_api:get_property(session, "api_test_property", 256) == "test_value")
 assert(rime_api:get_property(session, "api_test_property") == "test_value")
 print('rime_api:set_property and rime_api:get_property passed')
+
+rime_api:drain_notifications()
+notification_count = 0
+for i = 1, 1105 do
+  assert(rime_api:set_option(session, "ascii_mode", i % 2 == 1) == nil)
+end
+rime_api:drain_notifications()
+rime_api:drain_notifications()
+assert(notification_count >= 1000, "notification queue dropped messages")
+print('notification queue overflow drain passed: ' .. notification_count)
 
 local schemas = RimeSchemaList()
 assert(schemas ~= nil)

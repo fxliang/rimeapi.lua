@@ -62,7 +62,9 @@ local function deployer(user_dir, shared_dir, staging_dir)
   t.log_dir = "" -- output to stderr
   api:setup(t)
   api:initialize(t)
-  api:start_maintenance(true)
+  if api:start_maintenance(true) then
+    api:join_maintenance_thread()
+  end
   api:finalize()
 end
 -------------------------------------------------------------------------------

@@ -12,3 +12,12 @@ include/*
 *.dll
 rimeapi.app
 compile_commands.json
+# local build/test artifacts
+api_test/
+lua
+lua.exe
+*.dylib
+*.tar.gz
+*.zip
+rime-plugins/
+api_test_*/

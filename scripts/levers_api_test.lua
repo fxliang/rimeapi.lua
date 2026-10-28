@@ -2,19 +2,20 @@ local rime_api = RimeApi()
 local traits = RimeTraits()
 traits.app_name = "rimeapi"
 traits.shared_data_dir = "shared"
-traits.user_data_dir = "api_test"
+local test_user_dir = rawget(_G, "RIMEAPI_TEST_USER_DIR") or os.getenv("RIMEAPI_TEST_USER_DIR") or "api_test"
+traits.user_data_dir = test_user_dir
 traits.prebuilt_data_dir = "shared"
 traits.distribution_name = "rimeapi"
 traits.distribution_code_name = "rimeapi"
 traits.distribution_version = "1.0.0"
-traits.log_dir = "log"
+traits.log_dir = test_user_dir .. "/log"
 if not os.mkdir then
   -- check system is windows or unix-like
   local is_windows = package.config:sub(1, 1) == '\\'
   local mkdir_cmd = is_windows and "md " or "mkdir -p "
-  os.execute(mkdir_cmd .. traits.shared_data_dir)
-  os.execute(mkdir_cmd .. traits.user_data_dir)
-  os.execute(mkdir_cmd .. traits.log_dir)
+  os.execute(mkdir_cmd .. '"' .. traits.shared_data_dir .. '"')
+  os.execute(mkdir_cmd .. '"' .. traits.user_data_dir .. '"')
+  os.execute(mkdir_cmd .. '"' .. traits.log_dir .. '"')
 else
   os.mkdir(traits.shared_data_dir)
   os.mkdir(traits.user_data_dir)
@@ -260,8 +261,8 @@ assert(levers:restore_user_dict(snap) == true)
 print('levers:restore_user_dict passed')
 -------------------------------
 --- cleanup patches
-os.remove('api_test/default.custom.yaml')
-os.remove('api_test/api_test.custom.yaml')
+os.remove(test_user_dir .. '/default.custom.yaml')
+os.remove(test_user_dir .. '/api_test.custom.yaml')
 os.remove('luna_pinyin.export.txt')
 rime_api:finalize()
 levers = nil

@@ -266,7 +266,7 @@
 ---@field get_schema_version fun(self: self, schema_info: RimeSchemaInfo): string
 ---@field select_schemas fun(self: self, switcher_settings: RimeSwitcherSettings, schema_ids: string[], count: integer): boolean
 ---@field get_hotkeys fun(self: self, switcher_settings: RimeSwitcherSettings): string|nil
----@field set_hotkeys fun(self: self, switcher_settings: RimeSwitcherSettings, hotkeys: string): false --not implemented yet in librime
+---@field set_hotkeys fun(self: self, switcher_settings: RimeSwitcherSettings, hotkeys: string): boolean --not implemented yet in librime
 ---@field user_dict_iterator_init fun(self: self, iter: RimeUserDictIterator): boolean
 ---@field user_dict_iterator_destroy fun(self: self, iter: RimeUserDictIterator): nil
 ---@field next_user_dict fun(self: self, iter: RimeUserDictIterator): string

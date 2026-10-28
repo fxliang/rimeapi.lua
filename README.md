@@ -3,14 +3,17 @@
 ## Overview
 This module provides a set of functions to interact with the Rime Input Method Engine, allowing users to reference **librime api**, **librime levers** api related functionalities programmatically.
 
+Use one binding backend per process. librime exposes one process-wide notification handler, so native `rimeapi_lua` and the LuaJIT `noti_bridge` must not be registered simultaneously.
+
 ## Build Instructions
-To build the shared library, xmake is required. Follow these steps(or follow workflow in `./.github/workflows/ci.yml`):
+To build the shared libraries, use xmake or CMake. Follow these steps (or the workflow in `./.github/workflows/ci.yml`):
 
 - install `xmake` or `cmake`, `git`, and compiler tools for your system
-- clone the repository
-- install `librime` for linux/macos, or prepare librime libs in `lib` or `lib64` and headers in `include` for windows/macos
-- build the shared library for lua binding with `xmake` or `cmake`, if you want.
-- to run tests, run `lua test.lua api_test levers_api_test`, or `luajit test.lua api_test levers_api_test`
+- clone the repository and initialize submodules: `git submodule update --init --recursive`
+- install `librime` for Linux/macOS, or prepare librime libraries in `lib`/`lib64` and headers in `include` for Windows
+- build with `xmake` or `cmake`
+- run `./lua test.lua api_test levers_api_test` or `luajit test.lua api_test levers_api_test`; the harness creates a unique test user-data directory per process
+- to choose the test data location explicitly, set `RIMEAPI_TEST_USER_DIR` to a writable directory
 - if your are to use this module in luajit, make sure lua is static linked in librime-lua for MacOS/termux, because `RTLD_DEEPBIND` is not supported in these platforms. for termux, you may also need to hide the lua apis from librime, follow is a patch for librime-lua to do this
 ```patch
 diff --git a/CMakeLists.txt b/CMakeLists.txt
@@ -51,7 +54,7 @@ index 42f2ebb..404567e 100644
 
 ## Files Description
 
-- `rimeapi.lua`: a lua module for automatically loading shared library or ffi module, for lua(>=5.4)/luajit
+- `rimeapi.lua`: a lua module that loads the native Lua 5.4 backend or the LuaJIT FFI backend
 - `rimeapi_ffi.lua`: a luajit ffi binding module just like `rimeapi_lua.so`/`rimeapi_lua.dll`/`rimeapi_lua.dylib`
 - shared libraries for lua binding:
   - `rimeapi_lua.so`: for linux
@@ -64,7 +67,7 @@ index 42f2ebb..404567e 100644
 - `scripts/api_test.lua`: a rime api test script
 - `scripts/levers_api_test.lua`: a rime levers api test script
 - `shared`: base yamls from `librime` project, and a yaml `api_test.yaml`
-- `rimeapi.app.lua`: a lua(>=5.4)/luajit script, work as a REPL when no extra args passed, or run test scripts when args passed
+- `rimeapi.app.lua`: a Lua 5.4/LuaJIT script, work as a REPL when no extra args passed, or run test scripts when args passed
 - `rime_api_console.lua`: a lua script to work like `rime_api_console` of `librime`
 - `get-rime.ps1`: a powershell script tool for getting `librime` for windows/macos
 - `schema_tester.lua`: a lua script demo for testing rime schema
