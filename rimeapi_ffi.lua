@@ -595,13 +595,27 @@ end
 -------------------------------------------------------------------------------
 local cfg_borrowed_set = Set.new()
 local schemalist_borrowed_set = Set.new()
-local function is_config_borrowed(cfg) return cfg and cfg_borrowed_set:find(cfg._c) or false end
-local function is_schemalist_borrowed(schlist) return schlist and schemalist_borrowed_set:find(schlist._c.list) or false end
-local function set_config_borrowed(cfg, borrowed)
+local function is_config_borrowed(cfg) return cfg and cfg_borrowed_set:find(cfg) or false end
+local function is_schemalist_borrowed(schlist) return schlist and schemalist_borrowed_set:find(schlist) or false end
+local function set_config_borrowed(cfg, borrowed, owner)
   if not cfg then return end
-  if borrowed then cfg_borrowed_set:insert(cfg._c)
-  else cfg_borrowed_set:erase(cfg._c)
+  if borrowed then
+    cfg_borrowed_set:insert(cfg)
+    rawset(cfg, '_owner', owner)
+  else
+    cfg_borrowed_set:erase(cfg)
+    rawset(cfg, '_owner', nil)
   end
+end
+local function set_schemalist_borrowed(schlist, owner)
+  if not schlist then return end
+  schemalist_borrowed_set:insert(schlist)
+  rawset(schlist, '_owner', owner)
+end
+local function clear_schemalist_borrowed(schlist)
+  if not schlist then return end
+  schemalist_borrowed_set:erase(schlist)
+  rawset(schlist, '_owner', nil)
 end
 -------------------------------------------------------------------------------
 function RimeTraits()
@@ -992,24 +1006,20 @@ function RimeConfig()
         return function(_, key, value) return api.config_set_bool(obj._c, tostring(key), value and 1 or 0) ~= 0 end
       elseif k == 'set_string' then
         return function(_, key, value) return api.config_set_string(obj._c, tostring(key), tostring(value)) ~= 0 end
-      elseif k == 'open' then
-        return function(_, config_id) return api.config_open(tostring(config_id), obj._c) ~= 0 end
-      elseif k == 'reload' or k == 'open' then
+      elseif k == 'open' or k == 'reload' then
         return function(_, config_id)
-          local was_borrowed = is_config_borrowed(obj)
-          if not was_borrowed then api.config_close(obj._c) end
+          if is_config_borrowed(obj) then return false end
+          api.config_close(obj._c)
           local ok = api.config_open(tostring(config_id), obj._c) ~= 0
-          set_config_borrowed(obj, was_borrowed and (not ok))
+          set_config_borrowed(obj, false)
           return ok
         end
       elseif k == 'close' then
         return function(_)
-          if is_config_borrowed(obj) then return false
-          else
-            local ret = api.config_close(obj._c) ~= 0
-            set_config_borrowed(obj, false)
-            return ret
-          end
+          if is_config_borrowed(obj) then return false end
+          local ret = api.config_close(obj._c) ~= 0
+          set_config_borrowed(obj, false)
+          return ret
         end
       elseif k == 'type' then return 'RimeConfig'
       else
@@ -1081,7 +1091,15 @@ function RimeModule()
       elseif k == 'type' then return 'RimeModule'
       end
     end,
-    __newindex = function(_, k, v) error("RimeModule is read-only") end,
+    __newindex = function(_, k, v)
+      if k == 'module_name' then
+        local name = tostring(v)
+        rawset(obj, '_module_name', name)
+        obj._c.module_name = name
+      else
+        error("RimeModule is read-only")
+      end
+    end,
   }
   setmetatable(obj, mt)
   return obj
@@ -1157,10 +1175,10 @@ function RimeStringSlice()
   return obj
 end
 
-function RimeSchemaInfo(ptr)
+function RimeSchemaInfo(ptr, owner)
   if ptr == nil or ptr == ffi.NULL then return nil end
   local schema_info = ffi.cast("RimeSchemaInfo*", ptr)
-  local obj = { _c = schema_info }
+  local obj = { _c = schema_info, _owner = owner }
   local mt = {
     __index = function(_, k)
       local levers_api = get_levers_api()
@@ -1185,17 +1203,21 @@ function RimeSchemaInfo(ptr)
   return obj
 end
 
-function RimeSchemaListItem(ptr)
-  if ptr == nil or ptr == ffi.NULL then return nil end
-  local item = ffi.cast("RimeSchemaListItem*", ptr)
-  local obj = { _c = item }
+function RimeSchemaListItem(ptr, owner)
+  local item
+  if ptr == nil or ptr == ffi.NULL then
+    item = ffi.new("RimeSchemaListItem")
+  else
+    item = ffi.cast("RimeSchemaListItem*", ptr)
+  end
+  local obj = { _c = item, _owner = owner }
   local mt = {
     __index = function(_, k)
       if k == 'schema_id' then return safestr(obj._c.schema_id) or ''
       elseif k == 'name' then return safestr(obj._c.name) or ''
       elseif k == 'schema_info' then
         if obj._c.reserved == ffi.NULL then return nil end
-        local schema_info = RimeSchemaInfo(ffi.cast("RimeSchemaInfo*", obj._c.reserved))
+        local schema_info = RimeSchemaInfo(ffi.cast("RimeSchemaInfo*", obj._c.reserved), obj._owner)
         return schema_info
       elseif k == 'type' then return 'RimeSchemaListItem'
       end
@@ -1220,7 +1242,7 @@ function RimeSchemaList()
         for i = 0, n - 1 do
           local ok, item_c = pcall(function() return arr[i] end)
           if not ok or item_c == nil then break end
-          local item = RimeSchemaListItem(item_c)
+          local item = RimeSchemaListItem(item_c, obj._owner)
           out[#out + 1] = item
         end
         return out
@@ -1230,7 +1252,12 @@ function RimeSchemaList()
     __newindex = function(_, k, v) error("RimeSchemaList is read-only") end,
   }
   ffi.gc(obj._c, function(cdata)
-    if not is_schemalist_borrowed(obj) then ensure_api().free_schema_list(cdata) end
+    if is_schemalist_borrowed(obj) then
+      local ok, levers_api = pcall(get_levers_api)
+      if ok then levers_api.schema_list_destroy(cdata) end
+    else
+      ensure_api().free_schema_list(cdata)
+    end
   end)
   setmetatable(obj, mt)
   return obj
@@ -1359,9 +1386,21 @@ function RimeApi()
       elseif k == 'get_status' then
         return function(_, session_id, status_obj) return obj._c.get_status(tosessionid(session_id), status_obj._c) ~= 0 end
       elseif k == 'get_schema_list' then
-        return function(_, schemas) return obj._c.get_schema_list(schemas._c) ~= 0 end
+        return function(_, schemas)
+          if is_schemalist_borrowed(schemas) then return false end
+          obj._c.free_schema_list(schemas._c)
+          return obj._c.get_schema_list(schemas._c) ~= 0
+        end
       elseif k == 'free_schema_list' then
-        return function(_, schemas) obj._c.free_schema_list(schemas._c) end
+        return function(_, schemas)
+          if is_schemalist_borrowed(schemas) then
+            local ok, levers_api = pcall(get_levers_api)
+            if ok then levers_api.schema_list_destroy(schemas._c) end
+            clear_schemalist_borrowed(schemas)
+          else
+            obj._c.free_schema_list(schemas._c)
+          end
+        end
       elseif k == 'get_context' then
         return function(_, session_id, context_obj) return obj._c.get_context(tosessionid(session_id), context_obj._c) ~= 0 end
       elseif k == 'free_commit' then
@@ -1444,27 +1483,25 @@ function RimeApi()
         end
       elseif k == 'config_open' then
         return function(_, config_id, config_obj)
-          local was_borrowed = is_config_borrowed(config_obj)
-          if not was_borrowed then obj._c.config_close(config_obj._c) end
+          if is_config_borrowed(config_obj) then return false end
+          obj._c.config_close(config_obj._c)
           local ret = obj._c.config_open(tostring(config_id), config_obj._c) ~= 0
-          set_config_borrowed(config_obj, was_borrowed and (not ret))
+          set_config_borrowed(config_obj, false)
           return ret
         end
       elseif k == 'config_close' then
         return function(_, config_obj)
-          local ret = false
-          if not is_config_borrowed(config_obj) then
-            ret = obj._c.config_close(config_obj._c) ~= 0
-            cfg_borrowed_set:erase(config_obj)
-          end
+          if is_config_borrowed(config_obj) then return false end
+          local ret = obj._c.config_close(config_obj._c) ~= 0
+          set_config_borrowed(config_obj, false)
           return ret
         end
       elseif k == 'schema_open' then
         return function(_, schema_id, config_obj)
-          local was_borrowed = is_config_borrowed(config_obj)
-          if not was_borrowed then obj._c.config_close(config_obj._c) end
+          if is_config_borrowed(config_obj) then return false end
+          obj._c.config_close(config_obj._c)
           local ret = obj._c.schema_open(tostring(schema_id), config_obj._c) ~= 0
-          set_config_borrowed(config_obj, was_borrowed and (not ret))
+          set_config_borrowed(config_obj, false)
           return ret
         end
       elseif k == 'select_schema' then
@@ -1647,10 +1684,10 @@ function RimeApi()
         return function(_) return safestr(obj._c.get_version()) end
       elseif k == 'user_config_open' then
         return function(_, config_id, config_obj)
-          local was_borrowed = is_config_borrowed(config_obj)
-          if not was_borrowed then obj._c.config_close(config_obj._c) end
+          if is_config_borrowed(config_obj) then return false end
+          obj._c.config_close(config_obj._c)
           local ret = obj._c.user_config_open(tostring(config_id), config_obj._c) ~= 0
-          set_config_borrowed(config_obj, was_borrowed and (not ret))
+          set_config_borrowed(config_obj, false)
           return ret
         end
       elseif k == 'type' then return 'RimeApi'
@@ -1677,6 +1714,14 @@ end
 
 function RimeUserDictIterator()
   return {_c = ffi.new("RimeUserDictIterator"), type = 'RimeUserDictIterator' }
+end
+
+local function check_settings(settings)
+  if type(settings) ~= 'table' or
+      (settings.type ~= 'RimeCustomSettings' and settings.type ~= 'RimeSwitcherSettings') then
+    error("RimeCustomSettings or RimeSwitcherSettings expected")
+  end
+  return settings
 end
 
 local function wrap_levers_api(get_pointer)
@@ -1706,10 +1751,12 @@ local function wrap_levers_api(get_pointer)
         end
       elseif k == 'is_first_run' then
         return function(_, settings)
+          settings = check_settings(settings)
           return ensure_levers().is_first_run(settings._c) ~= 0
         end
       elseif k == 'load_settings' then
         return function(_, settings)
+          settings = check_settings(settings)
           local settings_ptr = settings._c
           if not ffi.istype('RimeCustomSettings*', settings_ptr) then
             settings_ptr = ffi.cast("RimeCustomSettings*", settings_ptr)
@@ -1718,30 +1765,37 @@ local function wrap_levers_api(get_pointer)
         end
       elseif k == 'customize_int' then
         return function(_, settings, key, value)
+          settings = check_settings(settings)
           return ensure_levers().customize_int(settings._c, tostring(key), tonumber(value)) ~= 0
         end
       elseif k == 'customize_string' then
         return function(_, settings, key, value)
+          settings = check_settings(settings)
           return ensure_levers().customize_string(settings._c, tostring(key), tostring(value)) ~= 0
         end
       elseif k == 'customize_bool' then
         return function(_, settings, key, value)
+          settings = check_settings(settings)
           return ensure_levers().customize_bool(settings._c, tostring(key), value == true and 1 or 0) ~= 0
         end
       elseif k == 'customize_double' then
         return function(_, settings, key, value)
+          settings = check_settings(settings)
           return ensure_levers().customize_double(settings._c, tostring(key), tonumber(value)) ~= 0
         end
       elseif k == 'customize_item' then
         return function(_, settings, key, value_obj)
+          settings = check_settings(settings)
           return ensure_levers().customize_item(settings._c, tostring(key), value_obj._c) ~= 0
         end
       elseif k == 'save_settings' then
         return function(_, settings)
+          settings = check_settings(settings)
           return ensure_levers().save_settings(settings._c) ~= 0
         end
       elseif k == 'custom_settings_destroy' then
         return function(_, settings)
+          settings = check_settings(settings)
           ensure_levers().custom_settings_destroy(settings._c)
           return nil
         end
@@ -1754,17 +1808,19 @@ local function wrap_levers_api(get_pointer)
       elseif k == 'get_available_schema_list' then
         return function(_, switcher_settings, schema_list)
           local ret = ensure_levers().get_available_schema_list(switcher_settings._c, schema_list._c) ~= 0
-          if ret then schemalist_borrowed_set:insert(schema_list) end
+          if ret then set_schemalist_borrowed(schema_list, switcher_settings) end
           return ret
         end
       elseif k == 'settings_is_modified' then
         return function(_, switcher_settings)
+          switcher_settings = check_settings(switcher_settings)
           return ensure_levers().settings_is_modified(switcher_settings._c) ~= 0
         end
       elseif k == 'settings_get_config' then
         return function(_, switcher_settings, config_obj)
+          switcher_settings = check_settings(switcher_settings)
           local ret = ensure_levers().settings_get_config(switcher_settings._c, config_obj._c) ~= 0
-          if ret then set_config_borrowed(config_obj, true) end
+          if ret then set_config_borrowed(config_obj, true, switcher_settings) end
           return ret
         end
       elseif k == 'user_dict_iterator_init' then
@@ -1823,7 +1879,7 @@ local function wrap_levers_api(get_pointer)
       elseif k == 'get_selected_schema_list' then
         return function(_, switcher_settings, schema_list)
           local ret = ensure_levers().get_selected_schema_list(switcher_settings._c, schema_list._c) ~= 0
-          if ret then schemalist_borrowed_set:insert(schema_list) end
+          if ret then set_schemalist_borrowed(schema_list, switcher_settings) end
           return ret
         end
       elseif k == 'select_schemas' then
@@ -1844,6 +1900,7 @@ local function wrap_levers_api(get_pointer)
       elseif k == 'schema_list_destroy' then
         return function(_, schema_list)
           ensure_levers().schema_list_destroy(schema_list._c)
+          clear_schemalist_borrowed(schema_list)
           return nil
         end
       else
