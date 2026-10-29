@@ -107,6 +107,9 @@ jobs:
     strategy:
       matrix:
         maker: [xmake, cmake]
+    env:
+      BOOST_ROOT: ${{ github.workspace }}/librime/deps/boost
+      boost_libs: regex
 
     steps:
 
