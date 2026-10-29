@@ -55,6 +55,7 @@ rule('common_rules')
       target:add('includedirs', 'include')
       target:add('linkdirs', (is_arch('x64', 'x86_64') and 'lib64' or 'lib'))
       if is_plat('windows') then
+        target:add('defines', 'NOMINMAX')
         target:add('cxflags', '/utf-8')
         target:add('cflags', '/utf-8')
       else
