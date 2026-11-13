@@ -117,12 +117,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: update librime to latest
-        working-directory: librime
-        run: |
-          git fetch origin HEAD
-          git checkout --detach FETCH_HEAD
-
       - name: compute librime short hash
         id: librime-hash
         run: |
