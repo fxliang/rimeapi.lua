@@ -19,6 +19,7 @@ target('lua5.4')
   set_kind('static')
   add_files('lua5.4/onelua.c')
   add_defines('MAKE_LIB')
+  if is_mode('release') then set_optimize('fastest') end
   add_includedirs('lua5.4', {public = true})
   if not is_plat('windows', 'mingw') then
     add_cflags('-fPIC -DLUA_USE_LINUX')
@@ -31,6 +32,7 @@ target('lua_interop')
   add_files('src/interop/state.cc', 'src/interop/compat.c', 'src/interop/utf8.c')
   add_includedirs('src/interop', {public = true})
   add_deps('lua5.4')
+  if is_mode('release') then set_optimize('fastest') end
   if not is_plat('windows', 'mingw') then
     add_cxflags('-fPIC')
   end
@@ -42,6 +44,18 @@ target('lua_lifetime_test')
   set_languages('c++17')
   add_files('tests/interop/lifetime_test.cpp')
   add_deps('lua_interop')
+  if not is_plat('windows', 'mingw') then add_syslinks('m', 'dl', 'pthread') end
+
+target('lua_interop_bench')
+  set_kind('binary')
+  set_default(false)
+  set_languages('c++17')
+  add_files('benchmarks/interop_bench.cpp')
+  add_deps('lua_interop')
+  if is_mode('release') then
+    set_optimize('fastest')
+    add_defines('NDEBUG')
+  end
   if not is_plat('windows', 'mingw') then add_syslinks('m', 'dl', 'pthread') end
 
 target('lua_object_test')

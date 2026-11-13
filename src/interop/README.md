@@ -51,3 +51,74 @@ suites remain integration tests for the Rime module.
 
 Rime's ABI initialization and resource policies are in `src/rime_resources.h`;
 Rime-specific conversions and API registration remain in `src/main.cpp`.
+
+## Performance benchmarks
+
+The optional benchmark uses ordinary C++ payloads and the same `lua_interop`
+library as the application. It does not load librime. Build an optimized version:
+
+```sh
+cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release \
+  -DRIMEAPI_BUILD_BINDINGS=OFF -DLUA_INTEROP_BUILD_BENCHMARKS=ON
+cmake --build build-bench --target lua_interop_bench
+./build-bench/src/interop/lua_interop_bench
+```
+
+On multi-configuration generators, also pass `--config Release` to the build
+command and run the executable in `src/interop/Release/` (`.exe` on Windows).
+With xmake:
+
+```sh
+xmake f -m release
+xmake build lua_interop_bench
+xmake run lua_interop_bench
+```
+
+The Lua library, interop library and benchmark use release optimization with
+both builders. Compare runs made with the same builder, compiler and flags.
+
+By default, each case calibrates to approximately 50 ms of timed work per sample
+and reports the median and minimum of seven samples. Each operation is one
+round trip, property access or call. Setup, warmup, batch checksum/stack validation
+and output are outside timing. A call from a Lua loop includes its loop overhead; raw and
+wrapped versions use the same loop. Raw checked C functions are a baseline:
+wrapped functions additionally provide the component's protected temporary
+cleanup. C++ to Lua baselines use `lua_pcall`; the component also checks reference
+lifetime and performs protected result conversion.
+
+Cases cover integer conversion, cached and rotating 128-byte strings, small and
+1 KiB value userdata, shared userdata, existing-object reads, properties, registry
+references and calls in both directions. Shared pointees and string inputs are
+created before timing. String reads borrow Lua storage; they do not copy into
+a new `std::string`. The cached-string case deliberately exercises Lua's C API
+string cache; rotating prebuilt strings also exercises allocation and GC.
+
+GC uses Lua 5.4 incremental mode with fixed parameters. Object cases distinguish:
+
+- `no-gc`: stop GC for a batch of at most 256 operations, then collect outside
+  timing. This bounds temporary memory even with large iteration counts.
+- `auto-gc`: include automatic collection during the loop. Final cleanup is
+  outside timing, so this is not a complete allocation-to-destruction measurement.
+- `full-gc`: include two full collections after every batch, amortized over the
+  operations in that batch, to include finalizers and identity-guard cleanup.
+
+`alloc/op` counts successful nonzero Lua allocator calls, including reallocations;
+`request B/op` sums their requested sizes. `peak +B` is the largest increase in
+Lua live bytes within a timed batch. These metrics exclude C++ heap allocations,
+including shared-pointer control blocks and native identity maps. Counting Lua
+allocations itself adds overhead to both compared paths.
+
+Use fixed iteration counts or export CSV for comparisons:
+
+```sh
+./build-bench/src/interop/lua_interop_bench --iterations 100000 --samples 9
+./build-bench/src/interop/lua_interop_bench --filter shared --samples 9
+./build-bench/src/interop/lua_interop_bench --iterations 100000 --csv > results.csv
+```
+
+CSV is emitted to stdout; errors go to stderr. An unmatched filter or invalid
+argument returns a failure status. Each timed batch checks results and stack
+balance afterward. When benchmarks and CTest are enabled, a short smoke test runs
+all cases with correctness checks and no timing thresholds. Timings vary with CPU
+frequency, thermal state and other processes; compare several runs on an idle
+device using the same settings, and assess absolute time as well as ratios.
