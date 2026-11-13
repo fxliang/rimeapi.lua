@@ -308,7 +308,7 @@ ffi.cdef[[
     size_t max_messages);
   int init_bridge(void);
   void finalize_bridge(void);
-  const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt);
+  const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt, const char** completions, int completion_count);
 ]]
 
 function to_acp_path(path, cp)
@@ -550,7 +550,7 @@ local function NotificationBridge()
   })
 end
 local bridge = NotificationBridge()
-function readline(prompt, history, context, continuation_prompt)
+function readline(prompt, history, context, continuation_prompt, completions)
   local history_ptr = nil
   local history_count = 0
   if history and type(history) == 'table' then
@@ -562,7 +562,22 @@ function readline(prompt, history, context, continuation_prompt)
       end
     end
   end
-  local res = bridge.readline_bridge(prompt, history_ptr, history_count, context, continuation_prompt)
+  local completions_ptr = nil
+  local completion_count = 0
+  if completions and type(completions) == 'table' then
+    completion_count = #completions
+    if completion_count > 0 then
+      completions_ptr = ffi.new("const char*[?]", completion_count)
+      for i = 1, completion_count do
+        local item = completions[i]
+        if type(item) == 'table' then
+          item = item.text or item.insert or item.display
+        end
+        completions_ptr[i-1] = item ~= nil and tostring(item) or nil
+      end
+    end
+  end
+  local res = bridge.readline_bridge(prompt, history_ptr, history_count, context, continuation_prompt, completions_ptr, completion_count)
   if res == nil then return nil end
   return ffi.string(res)
 end

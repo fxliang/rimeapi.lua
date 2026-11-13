@@ -42,6 +42,25 @@ void LineEditor::SetHistory(const std::vector<std::string>& history) {
   history_position_ = history_.size();
 }
 
+void LineEditor::SetCompletions(const std::vector<LineCompletion>& completions) {
+  completions_ = completions;
+}
+
+static std::string FirstWordSuffix(const std::string& suggestion) {
+  size_t pos = 0;
+  while (pos < suggestion.size() &&
+         std::isspace(static_cast<unsigned char>(suggestion[pos]))) {
+    ++pos;
+  }
+  while (pos < suggestion.size() &&
+         !std::isspace(static_cast<unsigned char>(suggestion[pos]))) {
+    ++pos;
+  }
+  if (pos < suggestion.size())
+    ++pos;
+  return suggestion.substr(0, pos);
+}
+
 bool LineEditor::ReadLine(const char* prompt, std::string* out, const char* context, const char* continuation_prompt) {
   if (!out)
     return false;
@@ -93,7 +112,7 @@ bool LineEditor::ReadLine(const char* prompt, std::string* out, const char* cont
   last_cursor_idx_ = 0;
   
   // Initial suggestion update for context-based suggestions
-  UpdateSuggestion(line);
+  UpdateSuggestion(line, cursor);
   RefreshLine(line, cursor);
   
   while (true) {
@@ -145,7 +164,7 @@ bool LineEditor::ReadLine(const char* prompt, std::string* out, const char* cont
       if (cursor > 0) {
         line.erase(cursor - 1, 1);
         --cursor;
-        UpdateSuggestion(line);
+        UpdateSuggestion(line, cursor);
         RefreshLine(line, cursor);
       } else {
         EmitBell();
@@ -154,9 +173,9 @@ bool LineEditor::ReadLine(const char* prompt, std::string* out, const char* cont
     }
     if (ch == 9) {  // Tab
       if (!suggestion_.empty()) {
-        line.append(suggestion_);
+        line.append(FirstWordSuffix(suggestion_));
         cursor = line.size();
-        suggestion_.clear();
+        UpdateSuggestion(line, cursor);
         RefreshLine(line, cursor);
       }
       continue;
@@ -170,7 +189,7 @@ bool LineEditor::ReadLine(const char* prompt, std::string* out, const char* cont
       }
       line.insert(cursor, 1, static_cast<char>(ch));
       ++cursor;
-      UpdateSuggestion(line);
+      UpdateSuggestion(line, cursor);
       RefreshLine(line, cursor);
       // editing after history recall should detach from history
       if (browsing_history_) {
@@ -342,7 +361,7 @@ bool LineEditor::HandleEscapeSequence(int ch,
         } else if (!suggestion_.empty()) {
           line->append(suggestion_);
           *cursor = line->size();
-          suggestion_.clear();
+          UpdateSuggestion(*line, *cursor);
           RefreshLine(*line, *cursor);
         } else {
           EmitBell();
@@ -375,7 +394,7 @@ bool LineEditor::HandleEscapeSequence(int ch,
           } else if (!suggestion_.empty()) {
             line->append(suggestion_);
             *cursor = line->size();
-            suggestion_.clear();
+            UpdateSuggestion(*line, *cursor);
             RefreshLine(*line, *cursor);
           } else {
             EmitBell();
@@ -452,13 +471,50 @@ void LineEditor::RecallHistory(int direction,
   EmitBell();
 }
 
-void LineEditor::UpdateSuggestion(const std::string& line) {
+void LineEditor::UpdateSuggestion(const std::string& line, size_t cursor) {
   suggestion_.clear();
+  if (cursor != line.size())
+    return;
+
+  // Prefer explicit completions over history suggestions. First try a
+  // whole-line prefix match, which supports multi-word commands such as
+  // "select schema " and "print candidate list".
+  if (!completions_.empty() && !line.empty()) {
+    for (const auto& completion : completions_) {
+      if (completion.text.length() > line.length() &&
+          completion.text.compare(0, line.length(), line) == 0) {
+        suggestion_ = completion.text.substr(line.length());
+        return;
+      }
+    }
+  }
+
+  // Then complete the current whitespace-delimited token, so key sequences
+  // such as "{Esc" work.
+  if (!completions_.empty()) {
+    size_t token_start = 0;
+    if (cursor > 0) {
+      size_t space = line.find_last_of(" \t", cursor - 1);
+      if (space != std::string::npos)
+        token_start = space + 1;
+    }
+    if (token_start < cursor) {
+      const std::string token = line.substr(token_start, cursor - token_start);
+      for (const auto& completion : completions_) {
+        if (completion.text.length() > token.length() &&
+            completion.text.compare(0, token.length(), token) == 0) {
+          suggestion_ = completion.text.substr(token.length());
+          return;
+        }
+      }
+    }
+  }
+
   // Allow suggestion even if line is empty, as long as we have context (previous lines)
   if (line.empty() && context_.empty()) {
     return;
   }
-  
+
   std::string full_current = context_ + line;
 
   // Search history backwards for a match

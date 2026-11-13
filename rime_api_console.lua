@@ -48,6 +48,7 @@ if not RimeApi then
   require('rimeapi')
 end
 -------------------------------------------------------------------------------
+local completion = require('rimeapi_completion')
 local cp
 if package.config:sub(1, 1) == '\\' then
   cp = set_console_codepage() -- set codepage to UTF-8, and return the original codepage
@@ -292,7 +293,7 @@ local function main()
   local prompt = '> '
 
   while continue do
-    local input = readline(prompt)
+    local input = readline(prompt, history, nil, nil, completion.console)
     if input == nil then
       break
     elseif input == '' then

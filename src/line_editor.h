@@ -4,6 +4,12 @@
 #include <string>
 #include <vector>
 
+struct LineCompletion {
+  std::string text;
+  std::string display;
+  std::string detail;
+};
+
 class LineEditor {
  public:
   explicit LineEditor(size_t max_length);
@@ -11,13 +17,14 @@ class LineEditor {
   // Reads one line into out; returns false on EOF or interruption.
   bool ReadLine(const char* prompt, std::string* out, const char* context = nullptr, const char* continuation_prompt = nullptr);
   void SetHistory(const std::vector<std::string>& history);
+  void SetCompletions(const std::vector<LineCompletion>& completions);
 
  private:
   int ReadChar();
   bool HandleEscapeSequence(int ch, std::string* line, size_t* cursor);
   void RecallHistory(int direction, std::string* line, size_t* cursor);
   void RefreshLine(const std::string& line, size_t cursor);
-  void UpdateSuggestion(const std::string& line);
+  void UpdateSuggestion(const std::string& line, size_t cursor);
   
   // Helper to calculate row/col
   struct Pos { size_t row; size_t col; };
@@ -27,11 +34,13 @@ class LineEditor {
   std::string continuation_prompt_;
   std::string context_;
   std::string last_full_content_;
-  size_t last_cursor_idx_ = 0;  bool IsPrintable(int ch) const;
+  size_t last_cursor_idx_ = 0;
+  bool IsPrintable(int ch) const;
   void EmitBell() const;
 
   size_t max_length_ = 0;
   std::vector<std::string> history_;
+  std::vector<LineCompletion> completions_;
   size_t history_position_ = 0;
   bool browsing_history_ = false;
   std::string saved_line_;

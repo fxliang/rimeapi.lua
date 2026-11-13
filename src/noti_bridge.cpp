@@ -69,7 +69,7 @@ extern "C" {
     std::vector<RimeNotificationMsg>().swap(msg_queue);
   }
 
-  RIME_API const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt) {
+  RIME_API const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt, const char** completions, int completion_count) {
     thread_local LineEditor editor(4096);
     if (history && history_count > 0) {
       std::vector<std::string> hist_vec;
@@ -79,6 +79,15 @@ extern "C" {
       }
       editor.SetHistory(hist_vec);
     }
+    std::vector<LineCompletion> completion_vec;
+    if (completions && completion_count > 0) {
+      completion_vec.reserve(completion_count);
+      for (int i = 0; i < completion_count; ++i) {
+        if (completions[i] && *completions[i])
+          completion_vec.push_back({completions[i], completions[i], ""});
+      }
+    }
+    editor.SetCompletions(completion_vec);
     thread_local std::string line_buffer;
     if (editor.ReadLine(prompt, &line_buffer, context, continuation_prompt)) {
       return line_buffer.c_str();

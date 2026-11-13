@@ -80,6 +80,7 @@ jobs:
           cp -r ./scripts ./rimeapi.lua-macos-dist/
           cp -r ./shared ./rimeapi.lua-macos-dist/
           cp ./rimeapi.annotation.lua ./rimeapi.lua-macos-dist/
+          cp ./rimeapi_completion.lua ./rimeapi.lua-macos-dist/
           cp ./README.md ./rimeapi.lua-macos-dist/
           cp ./rime_api_console.lua ./rimeapi.lua-macos-dist/
           cp ./rime_deployer.lua ./rimeapi.lua-macos-dist/
@@ -199,6 +200,7 @@ jobs:
           cp -r ./scripts ./rimeapi.lua-ubuntu24.04-dist/
           cp -r ./shared ./rimeapi.lua-ubuntu24.04-dist/
           cp ./rimeapi.annotation.lua ./rimeapi.lua-ubuntu24.04-dist/
+          cp ./rimeapi_completion.lua ./rimeapi.lua-ubuntu24.04-dist/
           cp ./README.md ./rimeapi.lua-ubuntu24.04-dist/
           cp ./rime_api_console.lua ./rimeapi.lua-ubuntu24.04-dist/
           cp ./rime_deployer.lua ./rimeapi.lua-ubuntu24.04-dist/
@@ -313,6 +315,7 @@ jobs:
           cp -r ./scripts ./rimeapi.lua-win${{ matrix.arch }}-dist/
           cp -r ./shared ./rimeapi.lua-win${{ matrix.arch }}-dist/
           cp ./rimeapi.annotation.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
+          cp ./rimeapi_completion.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
           cp ./README.md ./rimeapi.lua-win${{ matrix.arch }}-dist/
           cp ./rime_api_console.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/
           cp ./rime_deployer.lua ./rimeapi.lua-win${{ matrix.arch }}-dist/

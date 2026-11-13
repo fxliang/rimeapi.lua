@@ -2647,6 +2647,47 @@ static int resolve_path(lua_State* L) {
   return 1;
 }
 
+static void set_line_completions(lua_State* L, int index, LineEditor* editor) {
+  std::vector<LineCompletion> completions;
+  if (lua_istable(L, index)) {
+    const int len = static_cast<int>(lua_rawlen(L, index));
+    completions.reserve(static_cast<size_t>(len));
+    for (int i = 1; i <= len; ++i) {
+      lua_rawgeti(L, index, i);
+      if (lua_isstring(L, -1)) {
+        const char* text = lua_tostring(L, -1);
+        if (text && *text)
+          completions.push_back({text, text, ""});
+      } else if (lua_istable(L, -1)) {
+        LineCompletion completion;
+        lua_getfield(L, -1, "text");
+        if (!lua_isstring(L, -1)) {
+          lua_pop(L, 1);
+          lua_getfield(L, -1, "insert");
+        }
+        if (lua_isstring(L, -1))
+          completion.text = lua_tostring(L, -1);
+        lua_pop(L, 1);
+        if (!completion.text.empty()) {
+          lua_getfield(L, -1, "display");
+          if (lua_isstring(L, -1))
+            completion.display = lua_tostring(L, -1);
+          lua_pop(L, 1);
+          if (completion.display.empty())
+            completion.display = completion.text;
+          lua_getfield(L, -1, "detail");
+          if (lua_isstring(L, -1))
+            completion.detail = lua_tostring(L, -1);
+          lua_pop(L, 1);
+          completions.push_back(completion);
+        }
+      }
+      lua_pop(L, 1);
+    }
+  }
+  editor->SetCompletions(completions);
+}
+
 static int readline(lua_State* L) {
   static LineEditor editor(4096);
   const char* prompt = luaL_optstring(L, 1, nullptr);
@@ -2665,6 +2706,7 @@ static int readline(lua_State* L) {
   
   const char* context = luaL_optstring(L, 3, nullptr);
   const char* continuation_prompt = luaL_optstring(L, 4, nullptr);
+  set_line_completions(L, 5, &editor);
 
   std::string line;
   if (editor.ReadLine(prompt, &line, context, continuation_prompt)) {

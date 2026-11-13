@@ -73,6 +73,7 @@ index 42f2ebb..404567e 100644
 - `scripts/levers_api_test.lua`: a rime levers api test script
 - `shared`: base yamls from `librime` project, and a yaml `api_test.yaml`
 - `rimeapi.app.lua`: a Lua 5.4/LuaJIT script, work as a REPL when no extra args passed, or run test scripts when args passed
+- `rimeapi_completion.lua`: readline completion catalogs, including named Rime keys and common key combinations
 - `rime_api_console.lua`: a lua script to work like `rime_api_console` of `librime`
 - `get-rime.ps1`: a powershell script tool for getting `librime` for windows/macos
 - `schema_tester.lua`: a lua script demo for testing rime schema
