@@ -1,7 +1,7 @@
 #ifndef LUATYPE_STD_OPTIONAL_H
 #define LUATYPE_STD_OPTIONAL_H
 
-#include "lua_templates.h"
+#include "types.h"
 #include <optional>
 
 template<typename T>

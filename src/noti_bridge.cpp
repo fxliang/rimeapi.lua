@@ -11,6 +11,7 @@ typedef struct {
 static std::vector<RimeNotificationMsg> msg_queue;
 static std::vector<RimeNotificationMsg> lua_queue;
 static std::mutex noti_mutex;
+static constexpr size_t kMaxNotificationQueue = 65536;
 
 static void on_message(void* context_object,
     RimeSessionId session_id,
@@ -20,6 +21,8 @@ static void on_message(void* context_object,
   const std::string value = std::string(msg_value ? msg_value : "");
   {
     std::lock_guard<std::mutex> lock(noti_mutex);
+    if (msg_queue.size() >= kMaxNotificationQueue)
+      return;
     msg_queue.push_back({session_id, type, value});
   }
 }
@@ -30,7 +33,7 @@ extern "C" {
       const char** message_types,
       const char** message_values,
       size_t max_messages) {
-    if (max_messages == 0)
+    if (!session_ids || !message_types || !message_values || max_messages == 0)
       return 0;
     std::lock_guard<std::mutex> lock(noti_mutex);
     const size_t count = std::min(msg_queue.size(), max_messages);

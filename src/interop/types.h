@@ -1,7 +1,7 @@
 #ifndef LIB_LUA_TEMPLATES_H_
 #define LIB_LUA_TEMPLATES_H_
 
-#include "lua.h"
+#include "state.h"
 #if defined(__GNUC__) && defined(DEBUG)
 #include <cxxabi.h>
 #endif
@@ -9,6 +9,7 @@
 #include <vector>
 #include <set>
 #include <unordered_map>
+#include <mutex>
 #include <cstring>
 
 #ifdef __GNUC__
@@ -21,7 +22,19 @@ extern "C" {
 #include <lua.h>
 #include <lualib.h>
 #include <lauxlib.h>
-#include "lua-compat.h"
+#include "compat.h"
+}
+
+// Hides the metatable from Lua scripts.  Internal code keeps working because
+// lua_getmetatable/luaL_checkudata ignore the "__metatable" field.
+static inline void lua_hide_metatable(lua_State *L) {
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "__metatable");
+}
+
+static inline std::string lua_error_message(lua_State *L) {
+  const char *message = lua_tostring(L, -1);
+  return message ? message : "Lua raised a non-string error";
 }
 
 //--- C_State
@@ -96,6 +109,118 @@ struct LUAWRAPPER_LOCAL LuaTypeInfo {
   }
 };
 
+// Keep identities in native memory, separate from mutable Lua metatables and
+// registry values. A weak-key table retains a cleanup guard for each userdata.
+// Allocate guards first so owners finalize before guards when a state closes.
+namespace LuaIdentity {
+  struct Entry {
+    const LuaTypeInfo *type;
+    const void *guard;
+  };
+
+  inline std::mutex &mutex() {
+    static std::mutex value;
+    return value;
+  }
+
+  inline std::unordered_map<const void *, Entry> &identities() {
+    static std::unordered_map<const void *, Entry> value;
+    return value;
+  }
+
+  inline std::unordered_map<const void *, const void *> &guards() {
+    static std::unordered_map<const void *, const void *> value;
+    return value;
+  }
+
+  inline int collect_guard(lua_State *L) {
+    if (lua_type(L, 1) != LUA_TUSERDATA)
+      return 0;
+    const void *guard = lua_touserdata(L, 1);
+    std::lock_guard<std::mutex> lock(mutex());
+    auto it = guards().find(guard);
+    if (it != guards().end()) {
+      auto owner = identities().find(it->second);
+      if (owner != identities().end() && owner->second.guard == guard)
+        identities().erase(owner);
+      guards().erase(it);
+    }
+    return 0;
+  }
+
+  inline void push_table(lua_State *L) {
+    static const char key = 0;
+    lua_rawgetp(L, LUA_REGISTRYINDEX, &key);
+    if (!lua_isnil(L, -1))
+      return;
+    lua_pop(L, 1);
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushliteral(L, "k");
+    lua_setfield(L, -2, "__mode");
+    lua_setmetatable(L, -2);
+    lua_pushvalue(L, -1);
+    lua_rawsetp(L, LUA_REGISTRYINDEX, &key);
+  }
+
+  inline void set(lua_State *L, const LuaTypeInfo *t) {
+    const void *owner = lua_touserdata(L, -1);
+    const void *guard = lua_touserdata(L, -2);
+    {
+      std::lock_guard<std::mutex> lock(mutex());
+      identities()[owner] = {t, guard};
+      guards()[guard] = owner;
+    }
+    push_table(L);
+    lua_pushvalue(L, -2);  // newly allocated userdata
+    lua_pushvalue(L, -4);  // cleanup guard
+    lua_rawset(L, -3);
+    lua_pop(L, 1);
+    lua_remove(L, -2);  // only the owner remains on the caller's stack
+  }
+
+  inline void *newuserdata(lua_State *L, size_t size) {
+    lua_newuserdata(L, 1);  // guard, created before its owner
+    if (luaL_newmetatable(L, "__lua_identity_guard")) {
+      lua_pushcfunction(L, collect_guard);
+      lua_setfield(L, -2, "__gc");
+      lua_hide_metatable(L);
+    }
+    lua_setmetatable(L, -2);
+    return lua_newuserdata(L, size);
+  }
+
+  inline const LuaTypeInfo *get(lua_State *L, int i) {
+    if (lua_type(L, i) != LUA_TUSERDATA)
+      return nullptr;
+    const void *owner = lua_touserdata(L, i);
+    Entry entry;
+    {
+      std::lock_guard<std::mutex> lock(mutex());
+      auto it = identities().find(owner);
+      if (it == identities().end())
+        return nullptr;
+      entry = it->second;
+    }
+    // The guard can survive one GC cycle longer than an owner without __gc.
+    // Check the weak key too, so reused foreign userdata cannot inherit a type.
+    i = lua_absindex(L, i);
+    push_table(L);
+    lua_pushvalue(L, i);
+    lua_rawget(L, -2);
+    bool matches = lua_type(L, -1) == LUA_TUSERDATA &&
+        lua_touserdata(L, -1) == entry.guard;
+    lua_pop(L, 2);
+    return matches ? entry.type : nullptr;
+  }
+
+  inline void erase(lua_State *L, int i) {
+    const void *owner = lua_touserdata(L, i);
+    std::lock_guard<std::mutex> lock(mutex());
+    identities().erase(owner);
+  }
+}
+
 //--- LuaType
 // Generic case (includes pointers)
 template<typename T>
@@ -106,6 +231,9 @@ struct LUAWRAPPER_LOCAL LuaType {
 
   static int gc(lua_State *L) {
     T *o = (T *) luaL_checkudata(L, 1, type()->name());
+    if (LuaIdentity::get(L, 1) != type())
+      return 0;
+    LuaIdentity::erase(L, 1);
     o->~T();
     return 0;
   }
@@ -141,8 +269,9 @@ struct LUAWRAPPER_LOCAL LuaType {
     if (X<T>::pushnil(L, o))
       return;
 
-    void *u = lua_newuserdata(L, sizeof(T));
+    void *u = LuaIdentity::newuserdata(L, sizeof(T));
     new(u) T(o);
+    LuaIdentity::set(L, type());
     luaL_getmetatable(L, type()->name());
     if (lua_isnil(L, -1)) {
       // If T is not registered,
@@ -153,6 +282,7 @@ struct LUAWRAPPER_LOCAL LuaType {
       lua_setfield(L, -2, "type");
       lua_pushcfunction(L, gc);
       lua_setfield(L, -2, "__gc");
+      lua_hide_metatable(L);
     }
     lua_setmetatable(L, -2);
   }
@@ -160,19 +290,14 @@ struct LUAWRAPPER_LOCAL LuaType {
   static T &todata(lua_State *L, int i, C_State * = NULL) {
     typedef typename std::remove_const<T>::type U;
 
-    if (lua_getmetatable(L, i)) {
-      lua_getfield(L, -1, "type");
-      auto ttype = (const LuaTypeInfo *) lua_touserdata(L, -1);
-      if (ttype) {
-        void *_p = lua_touserdata(L, i);
-        if (*ttype == *type() ||
-            *ttype == *LuaType<U>::type()) {
-          auto o = (T *) _p;
-          lua_pop(L, 2);
-          return *o;
-        }
+    void *_p = lua_touserdata(L, i);
+    const LuaTypeInfo *ttype = LuaIdentity::get(L, i);
+    if (ttype) {
+      if (ttype == type() ||
+          ttype == LuaType<U>::type()) {
+        auto o = (T *) _p;
+        return *o;
       }
-      lua_pop(L, 2);
     }
 
     const char *msg = lua_pushfstring(L, "%s expected", type()->name());
@@ -189,55 +314,47 @@ struct LuaType<T &> {
   }
 
   static void pushdata(lua_State *L, T &o) {
-    T **u = (T**) lua_newuserdata(L, sizeof(T *));
+    T **u = (T**) LuaIdentity::newuserdata(L, sizeof(T *));
     *u = std::addressof(o);
+    LuaIdentity::set(L, type());
     luaL_setmetatable(L, type()->name());
   }
 
   static T &todata(lua_State *L, int i, C_State * = NULL) {
     typedef typename std::remove_const<T>::type U;
 
-    if (lua_getmetatable(L, i)) {
-      lua_getfield(L, -1, "type");
-      auto ttype = (const LuaTypeInfo *) lua_touserdata(L, -1);
-      if (ttype) {
-        void *_p = lua_touserdata(L, i);
-        if (*ttype == *type() ||
-            *ttype == *LuaType<U &>::type()) {
-          auto po = (T **) _p;
-          lua_pop(L, 2);
-          return **po;
-        }
-
-        if (*ttype == *LuaType<std::shared_ptr<T>>::type() ||
-            *ttype == *LuaType<std::shared_ptr<U>>::type()) {
-          auto ao = (std::shared_ptr<T> *) _p;
-          lua_pop(L, 2);
-          return *(*ao).get();
-        }
-
-        if (*ttype == *LuaType<std::unique_ptr<T>>::type() ||
-            *ttype == *LuaType<std::unique_ptr<U>>::type()) {
-          auto ao = (std::unique_ptr<T> *) _p;
-          lua_pop(L, 2);
-          return *(*ao).get();
-        }
-
-        if (*ttype == *LuaType<T *>::type() ||
-            *ttype == *LuaType<U *>::type()) {
-          auto p = (T **) _p;
-          lua_pop(L, 2);
-          return **p;
-        }
-
-        if (*ttype == *LuaType<T>::type() ||
-            *ttype == *LuaType<U>::type()) {
-          auto o = (T *) _p;
-          lua_pop(L, 2);
-          return *o;
-        }
+    void *_p = lua_touserdata(L, i);
+    const LuaTypeInfo *ttype = LuaIdentity::get(L, i);
+    if (ttype) {
+      if (ttype == type() ||
+          ttype == LuaType<U &>::type()) {
+        auto po = (T **) _p;
+        if (*po) return **po;
       }
-      lua_pop(L, 2);
+
+      if (ttype == LuaType<std::shared_ptr<T>>::type() ||
+          ttype == LuaType<std::shared_ptr<U>>::type()) {
+        auto ao = (std::shared_ptr<T> *) _p;
+        if (*ao) return *ao->get();
+      }
+
+      if (ttype == LuaType<std::unique_ptr<T>>::type() ||
+          ttype == LuaType<std::unique_ptr<U>>::type()) {
+        auto ao = (std::unique_ptr<T> *) _p;
+        if (*ao) return *ao->get();
+      }
+
+      if (ttype == LuaType<T *>::type() ||
+          ttype == LuaType<U *>::type()) {
+        auto p = (T **) _p;
+        if (*p) return **p;
+      }
+
+      if (ttype == LuaType<T>::type() ||
+          ttype == LuaType<U>::type()) {
+        auto o = (T *) _p;
+        return *o;
+      }
     }
 
     const char *msg = lua_pushfstring(L, "%s expected", type()->name());
@@ -256,6 +373,9 @@ struct LuaType<std::unique_ptr<T>> {
 
   static int gc(lua_State *L) {
     UT *o = (UT *) luaL_checkudata(L, 1, type()->name());
+    if (LuaIdentity::get(L, 1) != type())
+      return 0;
+    LuaIdentity::erase(L, 1);
     o->~UT();
     return 0;
   }
@@ -266,8 +386,9 @@ struct LuaType<std::unique_ptr<T>> {
       return;
     }
 
-    void *u = lua_newuserdata(L, sizeof(UT));
+    void *u = LuaIdentity::newuserdata(L, sizeof(UT));
     new(u) UT(std::move(o));
+    LuaIdentity::set(L, type());
     luaL_getmetatable(L, type()->name());
     if (lua_isnil(L, -1)) {
       // If T is not registered,
@@ -278,6 +399,7 @@ struct LuaType<std::unique_ptr<T>> {
       lua_setfield(L, -2, "type");
       lua_pushcfunction(L, gc);
       lua_setfield(L, -2, "__gc");
+      lua_hide_metatable(L);
     }
     lua_setmetatable(L, -2);
   }
@@ -373,6 +495,26 @@ template<>
 struct LuaType<long double> : LuaType<double> {};
 
 // Strings
+// C string reads borrow Lua-managed storage. Retaining or modifying that storage
+// requires an explicit copy by the application.
+template<>
+struct LuaType<const char*> {
+  static void pushdata(lua_State *L, const char* value) {
+    lua_pushstring(L, value ? value : "");
+  }
+
+  static const char* todata(lua_State *L, int i, C_State * = nullptr) {
+    return luaL_checkstring(L, i);
+  }
+};
+
+template<>
+struct LuaType<char*> : LuaType<const char*> {
+  static char* todata(lua_State *L, int i, C_State * = nullptr) {
+    return const_cast<char*>(luaL_checkstring(L, i));
+  }
+};
+
 template<>
 struct LuaType<std::string> {
   static void pushdata(lua_State *L, const std::string &o) {
@@ -490,7 +632,7 @@ static LuaResult<O> todata_safe(lua_State *L, int i) {
   int status = lua_pcall(L, 3, 0, 0);
 
   if (status != LUA_OK) {
-    std::string e = lua_tostring(L, -1);
+    std::string e = lua_error_message(L);
     lua_pop(L, 1);
     return LuaResult<O>::Err({status, e});
   }
@@ -500,38 +642,54 @@ static LuaResult<O> todata_safe(lua_State *L, int i) {
 // --- Lua call/resume
 template <typename ... I>
 std::shared_ptr<LuaObj> Lua::newthread(I ... input) {
+  static_assert(sizeof...(I) > 0, "Lua::newthread requires a function argument");
+  require_live();
   pushdataX<I ...>(L_, input ...);
   return newthreadx(L_, sizeof...(input));
 }
 
 template <typename O>
 LuaResult<O> Lua::resume(std::shared_ptr<LuaObj> f) {
+  if (!is_live())
+    return LuaResult<O>::Err({LUA_ERRRUN, "Lua state lifetime has ended"});
+  if (!f)
+    return LuaResult<O>::Err({LUA_ERRRUN, "thread expected"});
   LuaObj::pushdata(L_, f);
+  if (!lua_isthread(L_, -1)) {
+    lua_pop(L_, 1);
+    return LuaResult<O>::Err({LUA_ERRRUN, "thread expected"});
+  }
   lua_State *C = lua_tothread(L_, -1);
   lua_pop(L_, 1);
 
   int status = xlua_resume(C, 0);
   if (status == LUA_YIELD) {
+    if (lua_gettop(C) == 0)
+      lua_pushnil(C);
     auto r = todata_safe<O>(C, -1);
-    lua_pop(C, 1);
+    lua_settop(C, 0);
     return r;
   } else {
     if (status != LUA_OK) {
-      std::string e = lua_tostring(C, -1);
-      lua_pop(C, 1);
+      std::string e = lua_error_message(C);
+      lua_settop(C, 0);
       return LuaResult<O>::Err({status, e});
     }
+    lua_settop(C, 0);
     return LuaResult<O>::Err({status, ""});
   }
 }
 
 template <typename O, typename ... I>
 LuaResult<O> Lua::call(I ... input) {
+  static_assert(sizeof...(I) > 0, "Lua::call requires a function argument");
+  if (!is_live())
+    return LuaResult<O>::Err({LUA_ERRRUN, "Lua state lifetime has ended"});
   pushdataX<I ...>(L_, input ...);
 
-  int status = lua_pcall(L_, sizeof...(input) - 1, 1, 0);
+  int status = lua_pcall(L_, (int)sizeof...(input) - 1, 1, 0);
   if (status != LUA_OK) {
-    std::string e = lua_tostring(L_, -1);
+    std::string e = lua_error_message(L_);
     lua_pop(L_, 1);
     return LuaResult<O>::Err({status, e});
   }
@@ -543,11 +701,14 @@ LuaResult<O> Lua::call(I ... input) {
 
 template <typename ... I>
 LuaResult<void> Lua::void_call(I ... input) {
+  static_assert(sizeof...(I) > 0, "Lua::void_call requires a function argument");
+  if (!is_live())
+    return LuaResult<void>::Err({LUA_ERRRUN, "Lua state lifetime has ended"});
   pushdataX<I ...>(L_, input ...);
 
-  int status = lua_pcall(L_, sizeof...(input) - 1, 0, 0);
+  int status = lua_pcall(L_, (int)sizeof...(input) - 1, 0, 0);
   if (status != LUA_OK) {
-    std::string e = lua_tostring(L_, -1);
+    std::string e = lua_error_message(L_);
     lua_pop(L_, 1);
     return LuaResult<void>::Err({status, e});
   }

@@ -311,6 +311,14 @@ rime_api:drain_notifications()
 assert(notification_count >= 1000, "notification queue dropped messages")
 print('notification queue overflow drain passed: ' .. notification_count)
 
+rime_api:set_notification_handler(nil)
+assert(rime_api:find_session(session) == true)
+assert(rime_api:get_current_schema(session) == "luna_pinyin")
+rime_api:set_notification_handler(function()
+  notification_count = notification_count + 1
+end)
+print('notification unsubscribe preserves service passed')
+
 local schemas = RimeSchemaList()
 assert(schemas ~= nil)
 print('RimeSchemaList() passed')

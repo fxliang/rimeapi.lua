@@ -1,5 +1,5 @@
-#ifndef LUA_COMPAT_H
-#define LUA_COMPAT_H
+#ifndef LUA_INTEROP_COMPAT_H
+#define LUA_INTEROP_COMPAT_H
 
 #if LUA_VERSION_NUM == 501 && !defined(LUA_OK)
 #define LUA_OK 0

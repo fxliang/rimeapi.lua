@@ -1,6 +1,6 @@
 #ifndef LUA_EXPORT_TYPE_H
 #define LUA_EXPORT_TYPE_H
-#include "lua_templates.h"
+#include "types.h"
 
 void lua_export_type(lua_State *L,
                      const LuaTypeInfo *type, lua_CFunction gc,

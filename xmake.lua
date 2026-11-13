@@ -25,13 +25,48 @@ target('lua5.4')
   end
 
 -------------------------------------------------------------------------------
+target('lua_interop')
+  set_kind('static')
+  set_languages('c++17')
+  add_files('src/interop/state.cc', 'src/interop/compat.c', 'src/interop/utf8.c')
+  add_includedirs('src/interop', {public = true})
+  add_deps('lua5.4')
+  if not is_plat('windows', 'mingw') then
+    add_cxflags('-fPIC')
+  end
+  if is_mode('debug') then add_defines('DEBUG', {public = true}) end
+
+target('lua_lifetime_test')
+  set_kind('binary')
+  set_default(false)
+  set_languages('c++17')
+  add_files('tests/interop/lifetime_test.cpp')
+  add_deps('lua_interop')
+  if not is_plat('windows', 'mingw') then add_syslinks('m', 'dl', 'pthread') end
+
+target('lua_object_test')
+  set_kind('binary')
+  set_default(false)
+  set_languages('c++17')
+  add_files('tests/interop/object_test.cpp', 'tests/interop/fixture.cpp')
+  add_deps('lua_interop')
+  if not is_plat('windows', 'mingw') then add_syslinks('m', 'dl', 'pthread') end
+
+target('rime_ownership_test')
+  set_kind('binary')
+  set_default(false)
+  add_files('tests/rime_ownership_test.cpp')
+  add_deps('lua_interop')
+  add_rules('common_rules')
+
 target('rimeapi_lua')
   set_kind('shared')
   --set target file name to rimeapi_lua.so rimeapi_lua.dylib or rimeapi_lua.dll
   local file_name = is_plat('windows', 'mingw') and 'rimeapi_lua.dll'
     or (is_plat('macosx') and 'rimeapi_lua.dylib' or 'rimeapi_lua.so')
   set_filename(file_name)
-  add_files('src/main.cpp', 'src/*.c', 'src/*.cc')
+  add_files('src/main.cpp', 'src/line_editor.cc')
+  add_deps('lua_interop')
   add_rules('copy_after_build', 'common_rules')
 
 target('noti_bridge')

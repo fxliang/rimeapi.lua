@@ -96,16 +96,6 @@ function(apply_common_settings target)
   endif()
 endfunction()
 
-file(GLOB CORE_C_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.c")
-file(GLOB CORE_CXX_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.cc")
-
-add_library(core OBJECT ${CORE_C_SOURCES} ${CORE_CXX_SOURCES})
-if(NOT WIN32)
-  set_target_properties(core PROPERTIES POSITION_INDEPENDENT_CODE ON)
-endif()
-apply_common_settings(core)
-target_include_directories(core PRIVATE ${CMAKE_SOURCE_DIR}/lua5.4)
-
 add_executable(lua lua5.4/onelua.c)
 target_compile_features(lua PRIVATE c_std_99)
 if (NOT WIN32)
@@ -124,8 +114,12 @@ if(NOT WIN32)
   target_link_libraries(lua5.4 PUBLIC m)
 endif()
 
-add_library(rimeapi_lua SHARED src/main.cpp)
-target_sources(rimeapi_lua PRIVATE $<TARGET_OBJECTS:core>)
+add_subdirectory(src/interop)
+
+option(RIMEAPI_BUILD_BINDINGS "Build the librime Lua module and notification bridge" ON)
+if(RIMEAPI_BUILD_BINDINGS)
+add_library(rimeapi_lua SHARED src/main.cpp src/line_editor.cc)
+target_link_libraries(rimeapi_lua PRIVATE lua_interop)
 target_compile_definitions(rimeapi_lua PRIVATE BUILD_AS_LUA_MODULE)
 set_target_properties(rimeapi_lua PROPERTIES OUTPUT_NAME "rimeapi_lua")
 if(NOT WIN32)
@@ -142,6 +136,23 @@ if(NOT WIN32)
 elseif(NOT MSVC)
   set_target_properties(noti_bridge PROPERTIES PREFIX "")
 endif()
+endif() # RIMEAPI_BUILD_BINDINGS
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(lua_lifetime_test tests/interop/lifetime_test.cpp)
+  target_link_libraries(lua_lifetime_test PRIVATE lua_interop ${CMAKE_DL_LIBS})
+  add_test(NAME lua_lifetime COMMAND lua_lifetime_test)
+  add_executable(lua_object_test tests/interop/object_test.cpp tests/interop/fixture.cpp)
+  target_link_libraries(lua_object_test PRIVATE lua_interop ${CMAKE_DL_LIBS})
+  add_test(NAME lua_object COMMAND lua_object_test)
+  if(RIMEAPI_BUILD_BINDINGS)
+    add_executable(rime_ownership_test tests/rime_ownership_test.cpp)
+    target_link_libraries(rime_ownership_test PRIVATE lua_interop)
+    apply_common_settings(rime_ownership_test)
+    add_test(NAME rime_ownership COMMAND rime_ownership_test)
+  endif()
+endif()
 
 if(WIN32)
   if(CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -155,17 +166,15 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}" CACHE PATH "Install path prefix" FORCE)
 endif()
 
-install (TARGETS noti_bridge
-  LIBRARY DESTINATION .
-  RUNTIME DESTINATION .)
-
 install(TARGETS lua
   RUNTIME DESTINATION .)
 
-install(TARGETS rimeapi_lua
+if(RIMEAPI_BUILD_BINDINGS)
+install(TARGETS rimeapi_lua noti_bridge
   LIBRARY DESTINATION .
   RUNTIME DESTINATION .)
 
 if(WIN32 AND RIME_DLL_PATH AND EXISTS "${RIME_DLL_PATH}")
   install(FILES "${RIME_DLL_PATH}" DESTINATION .)
 endif()
+endif() # RIMEAPI_BUILD_BINDINGS

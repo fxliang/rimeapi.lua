@@ -1,7 +1,7 @@
 #ifndef LUATYPE_BOOST_OPTIONAL_H
 #define LUATYPE_BOOST_OPTIONAL_H
 
-#include "lua_templates.h"
+#include "types.h"
 #include <boost/optional.hpp>
 
 template<typename T>

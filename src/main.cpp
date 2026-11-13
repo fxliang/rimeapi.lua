@@ -1,4 +1,6 @@
-#include "lua_export_type.h"
+#include "interop/export.h"
+#include "interop/object.h"
+#include "rime_resources.h"
 #include "utils.h"
 #include "line_editor.h"
 #include <algorithm>
@@ -10,12 +12,10 @@
 #include <cxxabi.h>
 #endif
 
-static std::unordered_set<RimeConfig*> cfg_borrowed_set;
-static std::unordered_map<RimeConfig*, std::shared_ptr<void>> cfg_borrowed_owners;
-static std::unordered_set<RimeSchemaList*> schemalist_borrowed_set;
-static std::unordered_map<RimeSchemaList*, std::shared_ptr<void>> schemalist_borrowed_owners;
-static std::mutex cfg_borrowed_mutex;
-static std::mutex schemalist_borrowed_mutex;
+using LuaInterop::smart_shared_ptr_todata;
+using LuaInterop::lua_shared_ptr_todata;
+using LuaInterop::push_owner_uservalue;
+using LuaInterop::get_owner_uservalue;
 
 #define PUSH_VALUE_OR_NIL(L, val, cond, push_func) do {                       \
     if (cond) push_func(L, val); else lua_pushnil(L); } while(0)
@@ -31,81 +31,6 @@ static size_t check_buffer_size(lua_State* L, int index, lua_Integer value) {
                 index, "buffer size must be between 1 and 16 MiB");
   return (size_t)value;
 }
-// Thread-safe check wrappers
-static inline bool is_config_borrowed(RimeConfig* cfg) {
-  if (!cfg) return false;
-  std::lock_guard<std::mutex> lk(cfg_borrowed_mutex);
-  return cfg_borrowed_set.find(cfg) != cfg_borrowed_set.end();
-}
-static inline bool is_schemalist_borrowed(RimeSchemaList* list) {
-  if (!list) return false;
-  std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
-  return schemalist_borrowed_set.find(list) != schemalist_borrowed_set.end();
-}
-
-static inline void set_config_borrowed(
-    RimeConfig* cfg, bool borrowed, std::shared_ptr<void> owner = {}) {
-  if (!cfg) return;
-  std::lock_guard<std::mutex> lk(cfg_borrowed_mutex);
-  if (borrowed) {
-    cfg_borrowed_set.insert(cfg);
-    if (owner)
-      cfg_borrowed_owners[cfg] = std::move(owner);
-  } else {
-    cfg_borrowed_set.erase(cfg);
-    cfg_borrowed_owners.erase(cfg);
-  }
-}
-static inline void set_schemalist_borrowed(
-    RimeSchemaList* list, std::shared_ptr<void> owner = {}) {
-  if (!list) return;
-  std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
-  schemalist_borrowed_set.insert(list);
-  if (owner)
-    schemalist_borrowed_owners[list] = std::move(owner);
-}
-static inline void clear_schemalist_borrowed(RimeSchemaList* list) {
-  if (!list) return;
-  std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
-  schemalist_borrowed_set.erase(list);
-  schemalist_borrowed_owners.erase(list);
-}
-static inline std::shared_ptr<void> get_schemalist_owner(RimeSchemaList* list) {
-  if (!list) return {};
-  std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
-  auto it = schemalist_borrowed_owners.find(list);
-  return it == schemalist_borrowed_owners.end() ? std::shared_ptr<void>() : it->second;
-}
-
-static std::unordered_set<void*> levers_settings_owned;
-static std::mutex levers_settings_mutex;
-
-// 为char*添加LuaType特化
-template<>
-struct LuaType<char*> {
-  static void pushdata(lua_State *L, char* str) {
-    lua_pushstring(L, (str ? str : ""));
-  }
-
-  // 简化的todata实现，主要用于setter操作
-  static char* todata(lua_State *L, int i, C_State * = nullptr) {
-    // 对于setter操作，我们返回lua字符串的指针
-    // 注意：这个指针的生命周期由Lua管理
-    return const_cast<char*>(luaL_checkstring(L, i));
-  }
-};
-// 为const char*添加LuaType特化
-template<>
-struct LuaType<const char*> {
-  static void pushdata(lua_State *L, const char* str) {
-    lua_pushstring(L, (str ? str : ""));
-  }
-
-  static const char* todata(lua_State *L, int i, C_State * = nullptr) {
-    return luaL_checkstring(L, i);
-  }
-};
-
 // 为RimeStringSlice添加LuaType特化
 template<>
 struct LuaType<RimeStringSlice> {
@@ -125,7 +50,9 @@ struct LuaType<RimeStringSlice> {
 
   static int gc(lua_State *L) {
     Owned *o = (Owned*)luaL_checkudata(L, 1, type()->name());
-    if (o) o->~Owned();
+    if (!o || LuaIdentity::get(L, 1) != type()) return 0;
+    LuaIdentity::erase(L, 1);
+    o->~Owned();
     return 0;
   }
 
@@ -134,8 +61,9 @@ struct LuaType<RimeStringSlice> {
       lua_pushnil(L);
       return;
     }
-    void *u = lua_newuserdata(L, sizeof(Owned));
+    void *u = LuaIdentity::newuserdata(L, sizeof(Owned));
     new(u) Owned(o.str, (size_t)o.length);
+    LuaIdentity::set(L, type());
 
     luaL_getmetatable(L, type()->name());
     if (lua_isnil(L, -1)) {
@@ -145,128 +73,18 @@ struct LuaType<RimeStringSlice> {
       lua_setfield(L, -2, "type");
       lua_pushcfunction(L, gc);
       lua_setfield(L, -2, "__gc");
+      lua_hide_metatable(L);
     }
     lua_setmetatable(L, -2);
   }
 
   static RimeStringSlice &todata(lua_State *L, int i, C_State * = NULL) {
     Owned *o = (Owned*)luaL_checkudata(L, i, type()->name());
+    if (!o || LuaIdentity::get(L, i) != type())
+      luaL_argerror(L, i, "RimeStringSlice expected");
     return o->slice;
   }
 };
-
-// 通用shared_ptr特化 - 自动内存管理
-template<typename T>
-struct LuaType<std::shared_ptr<T>> {
-  using PtrType = std::shared_ptr<T>;
-  static const LuaTypeInfo *type() {
-    return &LuaTypeInfo::make<LuaType<PtrType>>();
-  }
-  static int gc(lua_State *L) {
-#ifdef DEBUG
-    std::string demangled_name = LuaType<PtrType>::type()->name();
-    printf("%s::%s referenced\n", demangled_name.c_str(), __func__);
-#endif
-    PtrType *p = (PtrType*)luaL_checkudata(L, 1, type()->name());
-    if (p) {
-#define CHECKT(t) (std::is_same<T, t>::value)
-      // free the underlying resource if needed, not free the shared_ptr itself
-      if (p->get()) {
-        if constexpr CHECKT(RimeConfig) {
-          if (!is_config_borrowed(p->get()) && RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, config_close))
-            RIMEAPI->config_close(p->get());
-          set_config_borrowed(p->get(), false);
-        } else if constexpr CHECKT(RimeConfigIterator) {
-          if (RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, config_end))
-            RIMEAPI->config_end(p->get());
-        } else if constexpr CHECKT(RimeStatus) {
-          if (RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, free_status))
-            RIMEAPI->free_status(p->get());
-        } else if constexpr CHECKT(RimeContext) {
-          if (RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, free_context))
-            RIMEAPI->free_context(p->get());
-        } else if constexpr CHECKT(RimeCommit) {
-          if (RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, free_commit))
-            RIMEAPI->free_commit(p->get());
-        } else if constexpr CHECKT(RimeSchemaList) {
-          bool borrowed = is_schemalist_borrowed(p->get());
-          if (borrowed) {
-            if (auto api = get_levers_api())
-              if (RIME_LEVERS_API_AVAILABLE(api, schema_list_destroy))
-                api->schema_list_destroy(p->get());
-          } else if (RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, free_schema_list)) {
-            RIMEAPI->free_schema_list(p->get());
-          }
-          clear_schemalist_borrowed(p->get());
-        } else if constexpr CHECKT(RimeCandidateListIterator) {
-          if (RIMEAPI && RIME_API_AVAILABLE(RIMEAPI, candidate_list_end))
-            RIMEAPI->candidate_list_end(p->get());
-        } else if constexpr CHECKT(RimeUserDictIterator) {
-          if (auto api = get_levers_api())
-            if (RIME_LEVERS_API_AVAILABLE(api, user_dict_iterator_destroy))
-              api->user_dict_iterator_destroy(p->get());
-        }
-      }
-#undef CHECKT
-      p->~PtrType();
-    }
-    return 0;
-  }
-  static void pushdata(lua_State *L, PtrType &t) {
-    if (!t) {
-      lua_pushnil(L);
-      return;
-    }
-    void *u = lua_newuserdata(L, sizeof(PtrType));
-    new(u) PtrType(t);
-
-    luaL_getmetatable(L, type()->name());
-    if (lua_isnil(L, -1)) {
-      lua_pop(L, 1);
-      luaL_newmetatable(L, type()->name());
-      lua_pushlightuserdata(L, (void*)type());
-      lua_setfield(L, -2, "type");
-      lua_pushcfunction(L, gc);
-      lua_setfield(L, -2, "__gc");
-    }
-    lua_setmetatable(L, -2);
-  }
-  static PtrType &todata(lua_State *L, int i, C_State* = NULL) {
-    PtrType *p = (PtrType*)luaL_checkudata(L, i, type()->name());
-    return *p;
-  }
-};
-
-template <typename T>
-static T* smart_shared_ptr_todata(lua_State *L, int index = 1) {
-  // Return nullptr if the Lua value at index is nil
-  if (lua_isnil(L, index)) return nullptr;
-  // If it's a std::shared_ptr<T> userdata, unwrap and return the raw pointer
-  const char* sptr_type_name = LuaType<std::shared_ptr<T>>::type()->name();
-  if (luaL_testudata(L, index, sptr_type_name)) {
-    auto &sptr = LuaType<std::shared_ptr<T>>::todata(L, index);
-    return sptr ? sptr.get() : nullptr;
-  }
-  // If it's a value userdata of T, return its address
-  const char* val_type_name = LuaType<T>::type()->name();
-  if (luaL_testudata(L, index, val_type_name)) {
-    return &LuaType<T>::todata(L, index);
-  }
-  // If it's a lightuserdata, assume it points to T
-  if (lua_islightuserdata(L, index)) {
-    return static_cast<T*>(lua_touserdata(L, index));
-  }
-  // Not a recognized type
-  return nullptr;
-}
-
-template <typename T>
-static std::shared_ptr<T> lua_shared_ptr_todata(lua_State* L, int index) {
-  const char* type_name = LuaType<std::shared_ptr<T>>::type()->name();
-  if (!luaL_testudata(L, index, type_name))
-    return {};
-  return LuaType<std::shared_ptr<T>>::todata(L, index);
-}
 
 static void push_owned_candidate(lua_State* L, const RimeCandidate& source) {
   auto candidate = std::shared_ptr<RimeCandidate>(new RimeCandidate{},
@@ -356,52 +174,23 @@ static std::shared_ptr<void> lua_settings_owner(lua_State* L, int index) {
   return {};
 }
 
-static bool settings_has_borrowed_alias(void* owner) {
-  if (!owner) return false;
-  {
-    std::lock_guard<std::mutex> lk(cfg_borrowed_mutex);
-    for (const auto& entry : cfg_borrowed_owners) {
-      if (entry.second.get() == owner) return true;
-    }
-  }
-  {
-    std::lock_guard<std::mutex> lk(schemalist_borrowed_mutex);
-    for (const auto& entry : schemalist_borrowed_owners) {
-      if (entry.second.get() == owner) return true;
-    }
-  }
-  return false;
-}
-
-static void push_owner_uservalue(
-    lua_State* L, int userdata_index, const std::shared_ptr<void>& owner) {
-  if (!owner)
-    return;
-  const int absolute_index = lua_absindex(L, userdata_index);
-  auto copy = owner;
-  LuaType<std::shared_ptr<void>>::pushdata(L, copy);
-  lua_setuservalue(L, absolute_index);
-}
-
-static std::shared_ptr<void> get_owner_uservalue(lua_State* L, int userdata_index) {
-  std::shared_ptr<void> owner;
-  if (lua_getuservalue(L, userdata_index) != LUA_TUSERDATA) {
-    lua_pop(L, 1);
-    return owner;
-  }
-  const char* type_name = LuaType<std::shared_ptr<void>>::type()->name();
-  if (luaL_testudata(L, -1, type_name))
-    owner = LuaType<std::shared_ptr<void>>::todata(L, -1);
-  lua_pop(L, 1);
-  return owner;
-}
-
 // Lua userdata wrapper for RimeSessionId
 struct RimeSessionStruct { RimeSessionId id{0}; };
+struct RimeSessionTypeTag {};
+static const LuaTypeInfo *rime_session_type() {
+  return &LuaTypeInfo::make<RimeSessionTypeTag>();
+}
+static RimeSessionStruct *check_rime_session(lua_State *L, int idx) {
+  RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, idx, "RimeSession");
+  if (!s || LuaIdentity::get(L, idx) != rime_session_type())
+    luaL_argerror(L, idx, "RimeSession expected");
+  return s;
+}
 static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
-  void *u = lua_newuserdata(L, sizeof(RimeSessionStruct));
+  void *u = LuaIdentity::newuserdata(L, sizeof(RimeSessionStruct));
   RimeSessionStruct *s = new(u) RimeSessionStruct();
   s->id = id;
+  LuaIdentity::set(L, rime_session_type());
   const auto ensure_rime_session_mt = [](lua_State *L) {
     luaL_getmetatable(L, "RimeSession");
     if (lua_isnil(L, -1)) {
@@ -409,11 +198,13 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
       luaL_newmetatable(L, "RimeSession");
       // push a __tostring function
       lua_pushcfunction(L, [](lua_State *L)->int {
-          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, "RimeSession");
+          RimeSessionStruct *s = check_rime_session(L, 1);
           if (s) {
             char buf[32];
-            auto format = sizeof(void*) == 4 ? ("%08X") : ("%016llX");
-            snprintf(buf, sizeof(buf), format, (RimeSessionId)s->id);
+            if (sizeof(void*) == 4)
+              snprintf(buf, sizeof(buf), "%08X", (unsigned int)s->id);
+            else
+              snprintf(buf, sizeof(buf), "%016llX", (unsigned long long)s->id);
             if (buf[0])
               lua_pushstring(L, buf);
             else
@@ -426,15 +217,17 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
       lua_setfield(L, -2, "__tostring");
       // push a __index function to get id by .id
       lua_pushcfunction(L, [](lua_State *L)->int {
-          RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, 1, "RimeSession");
+          RimeSessionStruct *s = check_rime_session(L, 1);
           const char* key = luaL_checkstring(L, 2);
           if (strcmp(key, "id") == 0) {
             PUSH_VALUE_OR_NIL(L, (lua_Integer)s->id, s && s->id, lua_pushinteger);
             return 1;
           } else if (!strcmp(key, "str")) {
             char buf[32];
-            auto format = sizeof(void*) == 4 ? ("%08X") : ("%016llX");
-            snprintf(buf, sizeof(buf), format, (RimeSessionId)s->id);
+            if (sizeof(void*) == 4)
+              snprintf(buf, sizeof(buf), "%08X", (unsigned int)s->id);
+            else
+              snprintf(buf, sizeof(buf), "%016llX", (unsigned long long)s->id);
             lua_pushstring(L, buf);
             return 1;
           }
@@ -442,8 +235,15 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
           return 1;
         });
       lua_setfield(L, -2, "__index");
+      lua_pushcfunction(L, [](lua_State *L)->int {
+          if (LuaIdentity::get(L, 1) == rime_session_type())
+            LuaIdentity::erase(L, 1);
+          return 0;
+        });
+      lua_setfield(L, -2, "__gc");
       lua_pushlightuserdata(L, (void*)"RimeSession");
       lua_setfield(L, -2, "type");
+      lua_hide_metatable(L);
     }
     lua_pop(L, 1);
   };
@@ -452,60 +252,18 @@ static void RimeSession_pushdata(lua_State *L, RimeSessionId id) {
 }
 static RimeSessionId RimeSession_todata(lua_State *L, int idx) {
   if (lua_isnil(L, idx)) return 0;
-  if (lua_isnumber(L, idx)) {
-    lua_Number n = lua_tonumber(L, idx);
-    if (n == (lua_Number)(RimeSessionId)n) return (RimeSessionId)n;
-  }
-  if (luaL_testudata(L, idx, "RimeSession")) {
-    RimeSessionStruct *s = (RimeSessionStruct*)luaL_checkudata(L, idx, "RimeSession");
-    return s ? s->id : 0;
-  }
-  if (lua_isnumber(L, idx)) return (RimeSessionId)lua_tointeger(L, idx);
+  int isnum = 0;
+  lua_Integer value = lua_tointegerx(L, idx, &isnum);
+  if (isnum) return (RimeSessionId)value;
+  if (luaL_testudata(L, idx, "RimeSession"))
+    return check_rime_session(L, idx)->id;
   luaL_error(L, "Expected RimeSessionId (userdata or integer) at arg %d", idx);
   return 0;
 }
 
-template<typename T, typename MemberType, MemberType T::*member>
-static int unified_get(lua_State *L) {
-  T* t = smart_shared_ptr_todata<T>(L, 1);
-  if (!t) {
-    lua_pushnil(L);
-    return 1;
-  }
-  // push data
-  LuaType<MemberType>::pushdata(L, t->*member);
-  return 1;
-}
-
-template<typename T, typename MemberType, MemberType T::*member>
-static int unified_set(lua_State *L) {
-  T* t = smart_shared_ptr_todata<T>(L, 1);
-  if (!t) {
-    luaL_error(L, "Invalid userdata type for setting member");
-    return 0;
-  }
-  // 设置成员值
-  t->*member = LuaType<MemberType>::todata(L, 2);
-  return 0;
-}
-
-#define SMART_GET(T, member) unified_get<T, decltype(T::member), &T::member>
-#define SMART_SET(T, member) unified_set<T, decltype(T::member), &T::member>
-
-// Specialized getter for boolean-like members where the C type may be int/Bool
-template<typename T, typename MemberType, MemberType T::*member>
-static int unified_get_bool(lua_State *L) {
-  T* t = smart_shared_ptr_todata<T>(L, 1);
-  PUSH_VALUE_OR_NIL(L, !!(t->*member), t != nullptr, lua_pushboolean);
-  return 1;
-}
-#define SMART_GET_BOOL(T, member) unified_get_bool<T, decltype(T::member), &T::member>
-
-template <typename T, typename = std::void_t<>>
-struct has_data_size : std::false_type {};
-
-template <typename T>
-struct has_data_size<T, std::void_t<decltype(std::declval<T>().data_size)>> : std::true_type {};
+#define SMART_GET(T, member) LuaInterop::get_member<T, decltype(T::member), &T::member>
+#define SMART_SET(T, member) LuaInterop::set_member<T, decltype(T::member), &T::member>
+#define SMART_GET_BOOL(T, member) LuaInterop::get_bool_member<T, decltype(T::member), &T::member>
 
 template <typename T, typename = std::void_t<>>
 struct is_complete_type : std::false_type {};
@@ -519,9 +277,7 @@ static int raw_make(lua_State *L) {
     lua_pushnil(L);
     return 1;
   } else {
-    auto t = std::make_shared<T>();
-    if constexpr (has_data_size<T>::value)
-      RIME_STRUCT_INIT(T, *t);
+    auto t = make_rime_resource<T>();
     LuaType<std::shared_ptr<T>>::pushdata(L, t);
     return 1;
   }
@@ -587,6 +343,8 @@ namespace RimeCandidateReg {
   using T = RimeCandidate;
   static int tostring(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
+    if (!t)
+      return luaL_error(L, "RimeCandidate expected");
     std::string repr = "{";
     if (t->text)
       repr += "  text=\"" + std::string(t->text);
@@ -681,6 +439,8 @@ namespace RimeCommitReg {
   using T = RimeCommit;
   static int tostring(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
+    if (!t)
+      return luaL_error(L, "RimeCommit expected");
     std::string repr = "";
     if (t->text)
       repr += std::string(t->text);
@@ -767,6 +527,8 @@ namespace RimeStatusReg {
   using T = RimeStatus;
   static int tostring(lua_State* L) {
     T* t = smart_shared_ptr_todata<T>(L);
+    if (!t)
+      return luaL_error(L, "RimeStatus expected");
     std::string repr = "{\n";
     if (t->schema_id)
       repr += "  schema_id=\"" + std::string(t->schema_id) + "\", \n";
@@ -865,7 +627,10 @@ namespace RimeConfigReg {
           RIME_API_AVAILABLE(api, config_open) &&
           RIME_API_AVAILABLE(api, config_close)) {
         api->config_close(t);
+        *t = T{};
         Bool ok = api->config_open(new_config_id, t);
+        if (!ok)
+          *t = T{};
         set_config_borrowed(t, false);
         lua_pushboolean(L, !!ok);
       } else
@@ -882,6 +647,7 @@ namespace RimeConfigReg {
       } else {
         REQUIRE_RIME_API(L, config_close);
         ret = RIMEAPI->config_close(t);
+        *t = T{};
         set_config_borrowed(t, false);
       }
     }
@@ -1310,6 +1076,8 @@ namespace RimeTraitsReg {
 #undef TRAITS_STRING_SETTER
   static int tostring(lua_State *L) {
     T* t = smart_shared_ptr_todata<T>(L);
+    if (!t)
+      return luaL_error(L, "RimeTraits expected");
     std::string repr = "{\n";
     if (t->app_name)
       repr += "  app_name=\"" + std::string(t->app_name) + "\", \n";
@@ -1512,6 +1280,7 @@ namespace RimeApiReg {
   static vector<string> msg_value;
 
   static std::mutex noti_mutex;
+  static constexpr size_t kMaxNotificationQueue = 65536;
   static void on_message(void* context_object,
       RimeSessionId session_id,
       const char* message_type,
@@ -1520,6 +1289,8 @@ namespace RimeApiReg {
     const std::string message_value_str = message_value ? message_value : "";
     {
       std::lock_guard<std::mutex> lock(noti_mutex);
+      if (sessionid.size() >= kMaxNotificationQueue)
+        return;
       sessionid.push_back(session_id);
       msg_type.push_back(message_type_str);
       msg_value.push_back(message_value_str);
@@ -1720,8 +1491,10 @@ namespace RimeApiReg {
         if (is_config_borrowed(config)) {
           result = false;
         } else {
-          if (RIME_API_AVAILABLE(api, config_close))
+          if (RIME_API_AVAILABLE(api, config_close)) {
             api->config_close(config);
+            *config = RimeConfig{};
+          }
           result = func_ptr(config_name, config);
           set_config_borrowed(config, false);
         }
@@ -1793,6 +1566,7 @@ namespace RimeApiReg {
         if (config) {
           if (!is_config_borrowed(config)) {
             ret = func_ptr(config);
+            *config = RimeConfig{};
             set_config_borrowed(config, false);
           }
         }
@@ -1878,8 +1652,10 @@ namespace RimeApiReg {
         lua_pushboolean(L, false);
         return 1;
       }
-      if (list && RIME_API_AVAILABLE(api, free_schema_list))
+      if (list && RIME_API_AVAILABLE(api, free_schema_list)) {
         api->free_schema_list(list); // ensure no leak
+        *list = RimeSchemaList{};
+      }
       clear_schemalist_borrowed(list);
       Bool result = list ? func_ptr(list) : false;
       lua_pushboolean(L, result);
@@ -1892,10 +1668,12 @@ namespace RimeApiReg {
           auto levers = get_levers_api();
           if (levers && RIME_LEVERS_API_AVAILABLE(levers, schema_list_destroy)) {
             levers->schema_list_destroy(list);
+            *list = RimeSchemaList{};
             clear_schemalist_borrowed(list);
           }
         } else {
           func_ptr(list);
+          *list = RimeSchemaList{};
         }
       }
       return 0;
@@ -1937,8 +1715,10 @@ namespace RimeApiReg {
       // candidate_list_begin(session_id, iterator)
       RimeSessionId session_id = RimeSession_todata(L, 2);
       RimeCandidateListIterator* it = smart_shared_ptr_todata<RimeCandidateListIterator>(L, 3);
-      if (it && RIME_API_AVAILABLE(api, candidate_list_end))
+      if (it && RIME_API_AVAILABLE(api, candidate_list_end)) {
         api->candidate_list_end(it);
+        *it = RimeCandidateListIterator{};
+      }
       Bool result = func_ptr(session_id, it);
       lua_pushboolean(L, result);
       return 1;
@@ -1952,13 +1732,17 @@ namespace RimeApiReg {
       // candidate_list_end(iterator)
       RimeCandidateListIterator* it = smart_shared_ptr_todata<RimeCandidateListIterator>(L, 2);
       func_ptr(it);
+      if (it)
+        *it = RimeCandidateListIterator{};
       return 0;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeSessionId, RimeCandidateListIterator*, int) {
       // candidate_list_from_index(session_id, iterator, index)
       RimeSessionId session_id = RimeSession_todata(L, 2);
       RimeCandidateListIterator* it = smart_shared_ptr_todata<RimeCandidateListIterator>(L, 3);
-      if (it && RIME_API_AVAILABLE(api, candidate_list_end))
+      if (it && RIME_API_AVAILABLE(api, candidate_list_end)) {
         api->candidate_list_end(it);
+        *it = RimeCandidateListIterator{};
+      }
       int index = luaL_checkinteger(L, 4);
       Bool result = func_ptr(session_id, it, index);
       lua_pushboolean(L, result);
@@ -1978,8 +1762,10 @@ namespace RimeApiReg {
       // config_begin_map(iterator, config, key)
       RimeConfigIterator* it = smart_shared_ptr_todata<RimeConfigIterator>(L, 2);
       RimeConfig* config = smart_shared_ptr_todata<RimeConfig>(L, 3);
-      if (it && RIME_API_AVAILABLE(api, config_end))
+      if (it && RIME_API_AVAILABLE(api, config_end)) {
         api->config_end(it);
+        *it = RimeConfigIterator{};
+      }
       const char* key = luaL_checkstring(L, 4);
       Bool result = func_ptr(it, config, key);
       lua_pushboolean(L, result);
@@ -1994,6 +1780,8 @@ namespace RimeApiReg {
       // config_end(iterator)
       RimeConfigIterator* it = smart_shared_ptr_todata<RimeConfigIterator>(L, 2);
       func_ptr(it);
+      if (it)
+        *it = RimeConfigIterator{};
       return 0;
     } else if constexpr SIGNATURE_CHECK(Bool, RimeConfig*, const char*, int) {
       // config_set_int / config_set_bool
@@ -2414,10 +2202,17 @@ namespace RimeLeversApiReg {
 
   // Helper available to multiple call sites: try to obtain a RimeCustomSettings*
   static RimeCustomSettings* lua_to_custom_settings(lua_State* L, int idx) {
-#define TRY_RETURN(type) do{type *t = smart_shared_ptr_todata<type>(L, idx); \
-  if (t) return reinterpret_cast<RimeCustomSettings*>(t);} while(0)
+#define TRY_RETURN(Kind) do { \
+  const auto identity = LuaIdentity::get(L, idx); \
+  if (identity == LuaType<std::shared_ptr<Kind>>::type() || \
+      identity == LuaType<Kind>::type()) { \
+    Kind *t = smart_shared_ptr_todata<Kind>(L, idx); \
+    if (t) return reinterpret_cast<RimeCustomSettings*>(t); \
+  } \
+} while (0)
     TRY_RETURN(RimeCustomSettings);
     TRY_RETURN(RimeSwitcherSettings);
+#undef TRY_RETURN
     luaL_argerror(L, idx, "RimeCustomSettings or RimeSwitcherSettings expected");
     return nullptr;
   }
@@ -2430,28 +2225,7 @@ namespace RimeLeversApiReg {
   // a deleter that calls destroy_levers_settings, then push to Lua.
   template<typename U>
   static void push_from_raw(lua_State* L, U* ptr) {
-    if (!ptr) { lua_pushnil(L); return; }
-    {
-      std::lock_guard<std::mutex> lk(levers_settings_mutex);
-      levers_settings_owned.insert(ptr);
-    }
-    const auto destroy_levers_settings = [](void* ptr) {
-      if (!ptr) return;
-      bool should_destroy = false;
-      std::lock_guard<std::mutex> lk(levers_settings_mutex);
-      auto it = levers_settings_owned.find(ptr);
-      if (it != levers_settings_owned.end()) {
-        levers_settings_owned.erase(it);
-        should_destroy = true;
-      }
-      if (should_destroy)
-        if (auto api = get_levers_api())
-          if (RIME_LEVERS_API_AVAILABLE(api, custom_settings_destroy))
-            api->custom_settings_destroy(reinterpret_cast<RimeCustomSettings*>(ptr));
-    };
-    auto sptr = std::shared_ptr<U>(ptr, [destroy_levers_settings](U* p) {
-      destroy_levers_settings(reinterpret_cast<void*>(p));
-    });
+    auto sptr = adopt_levers_settings(ptr);
     LuaType<std::shared_ptr<U>>::pushdata(L, sptr);
   }
   template<auto member_ptr, const char* func_name, size_t member_offset>
@@ -2562,8 +2336,10 @@ namespace RimeLeversApiReg {
         lua_pushboolean(L, false);
         return 1;
       }
-      if (cfg->ptr && RIME_API_AVAILABLE(RIMEAPI, config_close))
+      if (cfg->ptr && RIME_API_AVAILABLE(RIMEAPI, config_close)) {
         RIMEAPI->config_close(cfg);
+        *cfg = RimeConfig{};
+      }
       Bool ret = func_ptr(settings, cfg);
       if (ret) set_config_borrowed(cfg, true, lua_settings_owner(L, 2));
       lua_pushboolean(L, ret);
@@ -2576,8 +2352,10 @@ namespace RimeLeversApiReg {
         lua_pushboolean(L, false);
         return 1;
       }
-      if (list->list && RIME_API_AVAILABLE(RIMEAPI, free_schema_list))
+      if (list->list && RIME_API_AVAILABLE(RIMEAPI, free_schema_list)) {
         RIMEAPI->free_schema_list(list);
+        *list = RimeSchemaList{};
+      }
       Bool ret = func_ptr(settings, list);
       if (ret) set_schemalist_borrowed(list, lua_settings_owner(L, 2));
       lua_pushboolean(L, ret);
@@ -2587,6 +2365,7 @@ namespace RimeLeversApiReg {
       RimeSchemaList* list = smart_shared_ptr_todata<RimeSchemaList>(L, 2);
       if (list && is_schemalist_borrowed(list)) {
         func_ptr(list);
+        *list = RimeSchemaList{};
         clear_schemalist_borrowed(list);
       }
       return 0;
@@ -2687,9 +2466,13 @@ namespace RimeLeversApiReg {
       return 0;
     }
   }
+  static bool is_levers_api(RimeCustomApi* t) {
+    RimeLeversApi* levers = get_levers_api();
+    return t && levers && (void*)t == (void*)levers;
+  }
   static int to_rime_levers_api(lua_State *L) {
     RimeCustomApi* t = smart_shared_ptr_todata<RimeCustomApi>(L);
-    if (!t) {
+    if (!is_levers_api(t)) {
       lua_pushnil(L);
       return 1;
     }
@@ -2700,7 +2483,7 @@ namespace RimeLeversApiReg {
   static int raw_make(lua_State *L) {
     if (lua_gettop(L) == 1) {
       RimeCustomApi* t = smart_shared_ptr_todata<RimeCustomApi>(L);
-      if (!t) {
+      if (!is_levers_api(t)) {
         lua_pushnil(L);
       } else {
         auto api_ptr = std::shared_ptr<T>((RimeLeversApi*)t, [](T*){});
@@ -2944,6 +2727,11 @@ static void register_rime_bindings(lua_State *L) {
 #undef REGISTER_GLOBAL_FUNC
 }
 
+struct RimeLibraryLifetimeTag {};
+static const LuaTypeInfo *rime_library_lifetime_type() {
+  return &LuaTypeInfo::make<RimeLibraryLifetimeTag>();
+}
+
 static void ensure_librime_gc(lua_State* L) {
   lua_getfield(L, LUA_REGISTRYINDEX, "__rime_library_gc");
   if (!lua_isnil(L, -1)) {
@@ -2951,14 +2739,18 @@ static void ensure_librime_gc(lua_State* L) {
     return;
   }
   lua_pop(L, 1);
-  void* ud = lua_newuserdata(L, 0);
-  if (!ud) return;
+  LuaIdentity::newuserdata(L, 1);
+  LuaIdentity::set(L, rime_library_lifetime_type());
   if (luaL_newmetatable(L, "__rime_library_gc_mt")) {
     lua_pushcfunction(L, [](lua_State* L) -> int {
+        if (LuaIdentity::get(L, 1) != rime_library_lifetime_type())
+          return 0;
+        LuaIdentity::erase(L, 1);
         release_rime_lua_state();
         return 0;
     });
     lua_setfield(L, -2, "__gc");
+    lua_hide_metatable(L);
   }
   lua_setmetatable(L, -2);
   lua_setfield(L, LUA_REGISTRYINDEX, "__rime_library_gc");

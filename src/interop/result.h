@@ -1,5 +1,5 @@
-#ifndef RESULT_H
-#define RESULT_H
+#ifndef LUA_INTEROP_RESULT_H
+#define LUA_INTEROP_RESULT_H
 
 #include <utility>
 
@@ -104,4 +104,4 @@ private:
   U u_;
 };
 
-#endif /* RESULT_H */
+#endif /* LUA_INTEROP_RESULT_H */

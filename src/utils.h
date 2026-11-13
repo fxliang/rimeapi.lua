@@ -138,6 +138,8 @@ static inline void release_rime_lua_state() {
   if (rime_lua_state_count == 0 || --rime_lua_state_count != 0)
     return;
   if (rime_api && rime_service_initialized) {
+    if (RIME_API_AVAILABLE(rime_api, set_notification_handler))
+      rime_api->set_notification_handler(nullptr, nullptr);
     if (RIME_API_AVAILABLE(rime_api, cleanup_all_sessions))
       rime_api->cleanup_all_sessions();
     if (RIME_API_AVAILABLE(rime_api, finalize))

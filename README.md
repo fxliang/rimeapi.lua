@@ -8,6 +8,11 @@ Use one binding backend per process. librime exposes one process-wide notificati
 ## Build Instructions
 To build the shared libraries, use xmake or CMake. Follow these steps (or the workflow in `./.github/workflows/ci.yml`):
 
+The C++/Lua interop component can also be built and tested independently of
+librime with `-DRIMEAPI_BUILD_BINDINGS=OFF -DBUILD_TESTING=ON` in CMake. See
+[the component documentation](src/interop/README.md) for its ownership contract,
+initialization options and test commands.
+
 - install `xmake` or `cmake`, `git`, and compiler tools for your system
 - clone the repository and initialize submodules: `git submodule update --init --recursive`
 - install `librime` for Linux/macOS, or prepare librime libraries in `lib`/`lib64` and headers in `include` for Windows
