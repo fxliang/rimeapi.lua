@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -16,6 +17,8 @@
 #include <io.h>
 #include <windows.h>
 #else
+#include <errno.h>
+#include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
@@ -29,6 +32,17 @@
 #endif
 
 namespace {
+
+constexpr int kReadTimeout = -2;
+constexpr int kReadInterrupted = -3;
+
+#ifndef _WIN32
+volatile sig_atomic_t g_window_changed = 0;
+
+void HandleWindowChange(int) {
+  g_window_changed = 1;
+}
+#endif
 
 // ---------------------------------------------------------------------------
 // UTF-8 and display width helpers.  The editor works on byte offsets, but all
@@ -89,30 +103,20 @@ size_t NextCodepoint(const std::string& s, size_t pos) {
 }
 
 bool IsCombining(unsigned int cp) {
-  return (cp >= 0x0300 && cp <= 0x036F) ||
-         (cp >= 0x1AB0 && cp <= 0x1AFF) ||
-         (cp >= 0x1DC0 && cp <= 0x1DFF) ||
-         (cp >= 0x20D0 && cp <= 0x20FF) ||
+  return (cp >= 0x0300 && cp <= 0x036F) || (cp >= 0x1AB0 && cp <= 0x1AFF) ||
+         (cp >= 0x1DC0 && cp <= 0x1DFF) || (cp >= 0x20D0 && cp <= 0x20FF) ||
          (cp >= 0xFE20 && cp <= 0xFE2F);
 }
 
 bool IsWide(unsigned int cp) {
-  return (cp >= 0x1100 && cp <= 0x115F) ||
-         (cp >= 0x2E80 && cp <= 0x303E) ||
-         (cp >= 0x3041 && cp <= 0x33FF) ||
-         (cp >= 0x3400 && cp <= 0x4DBF) ||
-         (cp >= 0x4E00 && cp <= 0x9FFF) ||
-         (cp >= 0xA000 && cp <= 0xA4CF) ||
-         (cp >= 0xA960 && cp <= 0xA97F) ||
-         (cp >= 0xAC00 && cp <= 0xD7A3) ||
-         (cp >= 0xF900 && cp <= 0xFAFF) ||
-         (cp >= 0xFE10 && cp <= 0xFE19) ||
-         (cp >= 0xFE30 && cp <= 0xFE6F) ||
-         (cp >= 0xFF00 && cp <= 0xFF60) ||
-         (cp >= 0xFFE0 && cp <= 0xFFE6) ||
-         (cp >= 0x1F1E6 && cp <= 0x1F1FF) ||
-         (cp >= 0x1F300 && cp <= 0x1FAFF) ||
-         (cp >= 0x20000 && cp <= 0x3FFFD);
+  return (cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2E80 && cp <= 0x303E) ||
+         (cp >= 0x3041 && cp <= 0x33FF) || (cp >= 0x3400 && cp <= 0x4DBF) ||
+         (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0xA000 && cp <= 0xA4CF) ||
+         (cp >= 0xA960 && cp <= 0xA97F) || (cp >= 0xAC00 && cp <= 0xD7A3) ||
+         (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFE10 && cp <= 0xFE19) ||
+         (cp >= 0xFE30 && cp <= 0xFE6F) || (cp >= 0xFF00 && cp <= 0xFF60) ||
+         (cp >= 0xFFE0 && cp <= 0xFFE6) || (cp >= 0x1F1E6 && cp <= 0x1F1FF) ||
+         (cp >= 0x1F300 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD);
 }
 
 size_t CodepointWidth(unsigned int cp) {
@@ -253,14 +257,14 @@ LineEditor::LineEditor(size_t max_length) : max_length_(max_length) {
   // for the output side but still understand ANSI escape sequences.
   if (!vt_supported_) {
     const char* term = std::getenv("TERM");
-    if ((term && std::strcmp(term, "dumb") != 0) ||
-        std::getenv("WT_SESSION") || std::getenv("MSYSTEM"))
+    if ((term && std::strcmp(term, "dumb") != 0) || std::getenv("WT_SESSION") ||
+        std::getenv("MSYSTEM"))
       vt_supported_ = true;
   }
 #else
   const char* term = std::getenv("TERM");
-  vt_supported_ = isatty(STDOUT_FILENO) &&
-                  (!term || std::strcmp(term, "dumb") != 0);
+  vt_supported_ =
+      isatty(STDOUT_FILENO) && (!term || std::strcmp(term, "dumb") != 0);
 #endif
 }
 
@@ -269,11 +273,13 @@ void LineEditor::SetHistory(const std::vector<std::string>& history) {
   history_position_ = history_.size();
 }
 
-void LineEditor::SetCompletions(const std::vector<LineCompletion>& completions) {
+void LineEditor::SetCompletions(
+    const std::vector<LineCompletion>& completions) {
   completions_ = completions;
 }
 
-bool LineEditor::ReadLine(const char* prompt, std::string* out,
+bool LineEditor::ReadLine(const char* prompt,
+                          std::string* out,
                           const char* context,
                           const char* continuation_prompt,
                           const char* header) {
@@ -302,7 +308,19 @@ bool LineEditor::ReadLine(const char* prompt, std::string* out,
   struct TermiosGuard {
     termios original;
     bool active = false;
+    struct sigaction old_winch;
+    bool winch_installed = false;
+
     TermiosGuard() {
+      g_window_changed = 0;
+      struct sigaction action;
+      memset(&action, 0, sizeof(action));
+      action.sa_handler = HandleWindowChange;
+      sigemptyset(&action.sa_mask);
+      action.sa_flags = 0;
+      if (sigaction(SIGWINCH, &action, &old_winch) == 0)
+        winch_installed = true;
+
       if (!isatty(STDIN_FILENO))
         return;
       if (tcgetattr(STDIN_FILENO, &original) == 0) {
@@ -314,7 +332,10 @@ bool LineEditor::ReadLine(const char* prompt, std::string* out,
           active = true;
       }
     }
+
     ~TermiosGuard() {
+      if (winch_installed)
+        sigaction(SIGWINCH, &old_winch, nullptr);
       if (active)
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
     }
@@ -335,6 +356,14 @@ bool LineEditor::ReadLine(const char* prompt, std::string* out,
 
   while (true) {
     const int ch = ReadChar();
+    if (ch == kReadInterrupted) {
+      if (vt_supported_) {
+        fputs("\r\x1b[J", stdout);
+        last_cursor_row_ = 0;
+      }
+      RefreshLine(line, cursor);
+      continue;
+    }
     if (ch == -1) {
       putchar('\n');
       fflush(stdout);
@@ -443,30 +472,75 @@ bool LineEditor::ReadLine(const char* prompt, std::string* out,
 
 int LineEditor::ReadChar() {
 #ifdef _WIN32
-  if (win_console_input_)
+  if (win_console_input_) {
+    const size_t width = TerminalWidth();
+    const size_t height = TerminalHeight();
+    while (!_kbhit()) {
+      Sleep(50);
+      if (TerminalWidth() != width || TerminalHeight() != height)
+        return kReadInterrupted;
+    }
     return _getch();
+  }
   unsigned char c = 0;
   const int n = _read(_fileno(stdin), &c, 1);
   if (n <= 0)
     return -1;
   return static_cast<int>(c);
 #else
+  const size_t width = TerminalWidth();
+  const size_t height = TerminalHeight();
   unsigned char c = 0;
-  const ssize_t n = read(STDIN_FILENO, &c, 1);
-  if (n <= 0)
+  while (true) {
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 250000;
+    const int r = select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv);
+    if (r == 0) {
+      if (TerminalWidth() != width || TerminalHeight() != height)
+        return kReadInterrupted;
+      continue;
+    }
+    if (r < 0) {
+      if (errno == EINTR) {
+        if (g_window_changed) {
+          g_window_changed = 0;
+          return kReadInterrupted;
+        }
+        continue;
+      }
+      return -1;
+    }
+    const ssize_t n = read(STDIN_FILENO, &c, 1);
+    if (n > 0)
+      return static_cast<int>(c);
+    if (n < 0 && errno == EINTR) {
+      if (g_window_changed) {
+        g_window_changed = 0;
+        return kReadInterrupted;
+      }
+      continue;
+    }
     return -1;
-  return static_cast<int>(c);
+  }
 #endif
 }
 
 int LineEditor::ReadCharTimeout(int timeout_ms) {
-  // Returns -2 on timeout.
+  // Returns kReadTimeout on timeout and kReadInterrupted on window resize.
 #ifdef _WIN32
   if (win_console_input_) {
+    const size_t width = TerminalWidth();
+    const size_t height = TerminalHeight();
     const DWORD start = GetTickCount();
     while (!_kbhit()) {
+      if (TerminalWidth() != width || TerminalHeight() != height)
+        return kReadInterrupted;
       if (static_cast<int>(GetTickCount() - start) >= timeout_ms)
-        return -2;
+        return kReadTimeout;
       Sleep(5);
     }
     return _getch();
@@ -482,22 +556,32 @@ int LineEditor::ReadCharTimeout(int timeout_ms) {
       return ReadChar();
     }
     if (static_cast<int>(GetTickCount() - start) >= timeout_ms)
-      return -2;
+      return kReadTimeout;
     Sleep(5);
   }
 #else
-  fd_set fds;
-  FD_ZERO(&fds);
-  FD_SET(STDIN_FILENO, &fds);
-  struct timeval tv;
-  tv.tv_sec = timeout_ms / 1000;
-  tv.tv_usec = (timeout_ms % 1000) * 1000;
-  const int r = select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv);
-  if (r == 0)
-    return -2;
-  if (r < 0)
-    return -1;
-  return ReadChar();
+  while (true) {
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    const int r = select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv);
+    if (r == 0)
+      return kReadTimeout;
+    if (r < 0) {
+      if (errno == EINTR) {
+        if (g_window_changed) {
+          g_window_changed = 0;
+          return kReadInterrupted;
+        }
+        continue;
+      }
+      return -1;
+    }
+    return ReadChar();
+  }
 #endif
 }
 
@@ -575,8 +659,7 @@ size_t LineEditor::RenderMenu(size_t width) {
   for (size_t i = 0; i < visible; ++i) {
     const size_t index = menu_scroll_ + i;
     const LineCompletion& item = menu_items_[index];
-    const std::string display =
-        item.display.empty() ? item.text : item.display;
+    const std::string display = item.display.empty() ? item.text : item.display;
     const std::string kind = InferKind(item);
     const char* marker = "   ";
     if (kind == "key")
@@ -619,8 +702,7 @@ size_t LineEditor::RenderMenu(size_t width) {
 }
 
 void LineEditor::RefreshLine(const std::string& line, size_t cursor) {
-  const std::string visual_line =
-      VisualTransform(line, continuation_prompt_);
+  const std::string visual_line = VisualTransform(line, continuation_prompt_);
   const std::string visual_suggestion =
       VisualTransform(suggestion_, continuation_prompt_);
   const size_t width = TerminalWidth();
@@ -651,8 +733,7 @@ void LineEditor::RefreshLine(const std::string& line, size_t cursor) {
       menu_rows = RenderMenu(width);
 
     const std::string cursor_prefix =
-        prompt_ +
-        VisualTransform(line.substr(0, cursor), continuation_prompt_);
+        prompt_ + VisualTransform(line.substr(0, cursor), continuation_prompt_);
     Measure target = MeasureText(cursor_prefix, 0, width);
     if (width > 0 && target.col >= width)
       target.col = width - 1;
@@ -705,7 +786,8 @@ void LineEditor::RefreshLine(const std::string& line, size_t cursor) {
   }
 }
 
-bool LineEditor::HandleSpecialKey(SpecialKey key, std::string* line,
+bool LineEditor::HandleSpecialKey(SpecialKey key,
+                                  std::string* line,
                                   size_t* cursor) {
   switch (key) {
     case SpecialKey::Up:
@@ -808,12 +890,17 @@ bool LineEditor::HandleSpecialKey(SpecialKey key, std::string* line,
   return false;
 }
 
-bool LineEditor::HandleAnsiSequence(int first, std::string* line,
+bool LineEditor::HandleAnsiSequence(int first,
+                                    std::string* line,
                                     size_t* cursor) {
   if (first != '[' && first != 'O')
     return false;
   const int next = ReadCharTimeout(60);
-  if (next == -2 || next == -1)
+  if (next == kReadInterrupted) {
+    RefreshLine(*line, *cursor);
+    return true;
+  }
+  if (next == kReadTimeout || next == -1)
     return true;
   switch (next) {
     case 'A':
@@ -835,7 +922,11 @@ bool LineEditor::HandleAnsiSequence(int first, std::string* line,
     int code = next - '0';
     while (true) {
       const int c = ReadCharTimeout(60);
-      if (c == -2 || c == -1)
+      if (c == kReadInterrupted) {
+        RefreshLine(*line, *cursor);
+        return true;
+      }
+      if (c == kReadTimeout || c == -1)
         return true;
       if (c == '~') {
         switch (code) {
@@ -864,7 +955,8 @@ bool LineEditor::HandleAnsiSequence(int first, std::string* line,
   return true;
 }
 
-bool LineEditor::HandleEscapeSequence(int ch, std::string* line,
+bool LineEditor::HandleEscapeSequence(int ch,
+                                      std::string* line,
                                       size_t* cursor) {
   if (!line || !cursor)
     return false;
@@ -896,7 +988,7 @@ bool LineEditor::HandleEscapeSequence(int ch, std::string* line,
   }
   if (ch == 27) {
     const int next = ReadCharTimeout(60);
-    if (next == -2) {  // lone Escape
+    if (next == kReadTimeout) {  // lone Escape
       if (menu_open_) {
         CloseMenu();
         UpdateSuggestion(*line, *cursor);
@@ -906,12 +998,16 @@ bool LineEditor::HandleEscapeSequence(int ch, std::string* line,
     }
     if (next == -1)
       return true;
+    if (next == kReadInterrupted) {
+      RefreshLine(*line, *cursor);
+      return true;
+    }
     return HandleAnsiSequence(next, line, cursor);
   }
 #else
   if (ch == 27) {
     const int next = ReadCharTimeout(60);
-    if (next == -2) {  // lone Escape
+    if (next == kReadTimeout) {  // lone Escape
       if (menu_open_) {
         CloseMenu();
         UpdateSuggestion(*line, *cursor);
@@ -921,13 +1017,18 @@ bool LineEditor::HandleEscapeSequence(int ch, std::string* line,
     }
     if (next == -1)
       return true;
+    if (next == kReadInterrupted) {
+      RefreshLine(*line, *cursor);
+      return true;
+    }
     return HandleAnsiSequence(next, line, cursor);
   }
 #endif
   return false;
 }
 
-void LineEditor::RecallHistory(int direction, std::string* line,
+void LineEditor::RecallHistory(int direction,
+                               std::string* line,
                                size_t* cursor) {
   if (history_.empty()) {
     EmitBell();

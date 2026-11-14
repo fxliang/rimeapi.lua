@@ -17,12 +17,26 @@ class LineEditor {
 
   // Reads one line into out; returns false on EOF or interruption.
   // `header` is an optional status block rendered above the prompt.
-  bool ReadLine(const char* prompt, std::string* out, const char* context = nullptr, const char* continuation_prompt = nullptr, const char* header = nullptr);
+  bool ReadLine(const char* prompt,
+                std::string* out,
+                const char* context = nullptr,
+                const char* continuation_prompt = nullptr,
+                const char* header = nullptr);
   void SetHistory(const std::vector<std::string>& history);
   void SetCompletions(const std::vector<LineCompletion>& completions);
 
  private:
-  enum class SpecialKey { Up, Down, Left, Right, Home, End, Delete, PageUp, PageDown };
+  enum class SpecialKey {
+    Up,
+    Down,
+    Left,
+    Right,
+    Home,
+    End,
+    Delete,
+    PageUp,
+    PageDown
+  };
 
   struct CompletionContext {
     bool valid = false;
@@ -41,7 +55,9 @@ class LineEditor {
   void RefreshLine(const std::string& line, size_t cursor);
   void UpdateSuggestion(const std::string& line, size_t cursor);
 
-  bool ComputeCompletionContext(const std::string& line, size_t cursor, CompletionContext* ctx) const;
+  bool ComputeCompletionContext(const std::string& line,
+                                size_t cursor,
+                                CompletionContext* ctx) const;
   bool RebuildMenu(const std::string& line, size_t cursor);
   void CloseMenu();
   void MoveMenu(int delta);
