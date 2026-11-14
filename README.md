@@ -79,6 +79,29 @@ index 42f2ebb..404567e 100644
 - `schema_tester.lua`: a lua script demo for testing rime schema
 - `schema_tester_config.lua`: a config file for `schema_tester.lua`
 
+## Interactive completion menu
+
+`rime_api_console.lua` uses an in-process line editor with an IDE-style
+completion menu when a completion catalog is supplied. The menu works on Unix
+terminals, Windows Terminal/ConHost with VT processing, and ANSI-capable
+consoles such as mintty. When VT/ANSI output is unavailable the editor degrades
+to inline suggestions.
+
+- `Tab`: open the menu, accept the highlighted item, or accept a single match
+- `Up` / `Down` or `Ctrl-P` / `Ctrl-N`: move the selection
+- `PageUp` / `PageDown`: jump a page in the menu (history when closed)
+- `Enter`: accept the highlighted item; press again to submit the line
+- `Esc`: close the menu
+- `Right`: accept the selected item at the end of the line
+
+Completion items are `{ text = ..., display = ..., detail = ..., kind = ... }`
+tables (plain strings are still accepted). `kind` selects the menu marker:
+`key` for Rime key sequences, `command` for console commands.
+
+`readline` also accepts an optional header block (6th argument). The console
+passes the current schema/status line, which is rendered above the prompt and
+is redrawn together with the completion menu.
+
 ## Credites
 
 - [librime](https://github.com/rime/librime) (The 3-Clause BSD License) RIME: Rime Input Method Engine

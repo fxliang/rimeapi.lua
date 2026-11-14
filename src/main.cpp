@@ -2679,6 +2679,10 @@ static void set_line_completions(lua_State* L, int index, LineEditor* editor) {
           if (lua_isstring(L, -1))
             completion.detail = lua_tostring(L, -1);
           lua_pop(L, 1);
+          lua_getfield(L, -1, "kind");
+          if (lua_isstring(L, -1))
+            completion.kind = lua_tostring(L, -1);
+          lua_pop(L, 1);
           completions.push_back(completion);
         }
       }
@@ -2706,10 +2710,11 @@ static int readline(lua_State* L) {
   
   const char* context = luaL_optstring(L, 3, nullptr);
   const char* continuation_prompt = luaL_optstring(L, 4, nullptr);
+  const char* header = luaL_optstring(L, 6, nullptr);
   set_line_completions(L, 5, &editor);
 
   std::string line;
-  if (editor.ReadLine(prompt, &line, context, continuation_prompt)) {
+  if (editor.ReadLine(prompt, &line, context, continuation_prompt, header)) {
     lua_pushstring(L, line.c_str());
   } else {
     lua_pushnil(L);

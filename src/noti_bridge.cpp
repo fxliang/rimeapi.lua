@@ -69,7 +69,7 @@ extern "C" {
     std::vector<RimeNotificationMsg>().swap(msg_queue);
   }
 
-  RIME_API const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt, const char** completions, int completion_count) {
+  RIME_API const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt, const char** completions, const char** displays, const char** details, const char** kinds, int completion_count, const char* header) {
     thread_local LineEditor editor(4096);
     if (history && history_count > 0) {
       std::vector<std::string> hist_vec;
@@ -83,13 +83,21 @@ extern "C" {
     if (completions && completion_count > 0) {
       completion_vec.reserve(completion_count);
       for (int i = 0; i < completion_count; ++i) {
-        if (completions[i] && *completions[i])
-          completion_vec.push_back({completions[i], completions[i], ""});
+        if (!completions[i] || !*completions[i])
+          continue;
+        LineCompletion completion;
+        completion.text = completions[i];
+        completion.display = (displays && displays[i] && *displays[i])
+                                 ? displays[i]
+                                 : completion.text;
+        completion.detail = details && details[i] ? details[i] : "";
+        completion.kind = kinds && kinds[i] ? kinds[i] : "";
+        completion_vec.push_back(std::move(completion));
       }
     }
     editor.SetCompletions(completion_vec);
     thread_local std::string line_buffer;
-    if (editor.ReadLine(prompt, &line_buffer, context, continuation_prompt)) {
+    if (editor.ReadLine(prompt, &line_buffer, context, continuation_prompt, header)) {
       return line_buffer.c_str();
     }
     return nullptr;

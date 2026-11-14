@@ -114,20 +114,20 @@ local function init()
   end
   api:drain_notifications()
 end
---- print status info
---- @param status RimeStatus
---- @return nil
-local function print_status(status)
-  local msg = string.format("schema: %s / %s", status.schema_id, status.schema_name)
-  print(msg)
-  msg = "status: "
-  local disabled = status.is_disabled == true and " disabled" or "";
-  local composing = status.is_composing == true and " composing" or "";
-  local ascii_mode = status.is_ascii_mode == true and " ascii_mode" or "";
-  local full_shape = status.is_full_shape == true and " full_shape" or "";
-  local simplified = status.is_simplified == true and " simplified" or "";
-  msg = msg .. disabled .. composing .. ascii_mode .. full_shape .. simplified
-  print(msg)
+--- build the one-line status header shown above the prompt
+--- @param st RimeStatus
+--- @return string|nil
+local function status_header(st)
+  if not st then return nil end
+  local flags = {}
+  if st.is_disabled == true then flags[#flags + 1] = "disabled" end
+  if st.is_composing == true then flags[#flags + 1] = "composing" end
+  if st.is_ascii_mode == true then flags[#flags + 1] = "ascii_mode" end
+  if st.is_full_shape == true then flags[#flags + 1] = "full_shape" end
+  if st.is_simplified == true then flags[#flags + 1] = "simplified" end
+  local state = #flags > 0 and table.concat(flags, " ") or "ready"
+  return string.format("schema: %s / %s  [%s]",
+    st.schema_id or "?", st.schema_name or "?", state)
 end
 
 --- print composition preedit with selection and cursor
@@ -202,9 +202,6 @@ local status = RimeStatus()
 local function print_session(session_id)
   if api:get_commit(session_id, commit) then
     print("Commit text:", commit.text)
-  end
-  if api:get_status(session_id, status) then
-    print_status(status)
   end
   if api:get_context(session_id, context) then
     print_context(context)
@@ -293,7 +290,11 @@ local function main()
   local prompt = '> '
 
   while continue do
-    local input = readline(prompt, history, nil, nil, completion.console)
+    local header = nil
+    if api:get_status(session_id, status) then
+      header = status_header(status)
+    end
+    local input = readline(prompt, history, nil, nil, completion.console, header)
     if input == nil then
       break
     elseif input == '' then

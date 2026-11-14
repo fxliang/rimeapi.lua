@@ -136,10 +136,19 @@ local console_commands = {
 
 local console = {}
 for _, item in ipairs(console_commands) do
-  console[#console + 1] = item
+  console[#console + 1] = {
+    text = item,
+    display = item,
+    detail = 'console command',
+    kind = 'command',
+  }
 end
 for _, item in ipairs(rime_keys) do
-  console[#console + 1] = item
+  console[#console + 1] = {
+    text = item,
+    display = item,
+    kind = 'key',
+  }
 end
 
 M.rime_keys = rime_keys

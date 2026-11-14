@@ -308,7 +308,7 @@ ffi.cdef[[
     size_t max_messages);
   int init_bridge(void);
   void finalize_bridge(void);
-  const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt, const char** completions, int completion_count);
+  const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt, const char** completions, const char** displays, const char** details, const char** kinds, int completion_count, const char* header);
 ]]
 
 function to_acp_path(path, cp)
@@ -550,7 +550,7 @@ local function NotificationBridge()
   })
 end
 local bridge = NotificationBridge()
-function readline(prompt, history, context, continuation_prompt, completions)
+function readline(prompt, history, context, continuation_prompt, completions, header)
   local history_ptr = nil
   local history_count = 0
   if history and type(history) == 'table' then
@@ -563,21 +563,53 @@ function readline(prompt, history, context, continuation_prompt, completions)
     end
   end
   local completions_ptr = nil
+  local displays_ptr = nil
+  local details_ptr = nil
+  local kinds_ptr = nil
   local completion_count = 0
+  local keep_alive = {}
   if completions and type(completions) == 'table' then
     completion_count = #completions
     if completion_count > 0 then
       completions_ptr = ffi.new("const char*[?]", completion_count)
+      displays_ptr = ffi.new("const char*[?]", completion_count)
+      details_ptr = ffi.new("const char*[?]", completion_count)
+      kinds_ptr = ffi.new("const char*[?]", completion_count)
       for i = 1, completion_count do
         local item = completions[i]
+        local text, display, detail, kind
         if type(item) == 'table' then
-          item = item.text or item.insert or item.display
+          text = item.text or item.insert or item.display
+          display = item.display
+          detail = item.detail
+          kind = item.kind
+        else
+          text = item
         end
-        completions_ptr[i-1] = item ~= nil and tostring(item) or nil
+        if text ~= nil then
+          text = tostring(text)
+          keep_alive[#keep_alive + 1] = text
+          completions_ptr[i-1] = text
+        end
+        if display ~= nil then
+          display = tostring(display)
+          keep_alive[#keep_alive + 1] = display
+          displays_ptr[i-1] = display
+        end
+        if detail ~= nil then
+          detail = tostring(detail)
+          keep_alive[#keep_alive + 1] = detail
+          details_ptr[i-1] = detail
+        end
+        if kind ~= nil then
+          kind = tostring(kind)
+          keep_alive[#keep_alive + 1] = kind
+          kinds_ptr[i-1] = kind
+        end
       end
     end
   end
-  local res = bridge.readline_bridge(prompt, history_ptr, history_count, context, continuation_prompt, completions_ptr, completion_count)
+  local res = bridge.readline_bridge(prompt, history_ptr, history_count, context, continuation_prompt, completions_ptr, displays_ptr, details_ptr, kinds_ptr, completion_count, header)
   if res == nil then return nil end
   return ffi.string(res)
 end
