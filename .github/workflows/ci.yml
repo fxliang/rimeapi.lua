@@ -24,7 +24,7 @@ jobs:
         maker: [xmake, cmake]
     steps:
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
@@ -98,7 +98,7 @@ jobs:
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: rimeapi.lua-macos-dist.tar.gz
           path: rimeapi.lua-macos-dist.tar.gz
@@ -114,7 +114,7 @@ jobs:
 
     steps:
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -128,7 +128,7 @@ jobs:
 
       - name: cache librime build
         id: cache-librime
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: librime.so
           key: ${{ runner.os }}-librime-${{ steps.librime-hash.outputs.short }}
@@ -217,7 +217,7 @@ jobs:
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: rimeapi.lua-ubuntu24.04-dist.tar.gz
           path: rimeapi.lua-ubuntu24.04-dist.tar.gz
@@ -229,19 +229,19 @@ jobs:
         arch: [x64, x86]
         maker: [xmake, cmake]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: xmake-io/github-action-setup-xmake@v1
         if: matrix.maker == 'xmake'
 
-      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: TheMrMilchmann/setup-msvc-dev@v4
         with:
           arch: ${{ matrix.arch }}
 
       - name: cache librime
         id: cache-librime
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             include
@@ -277,7 +277,7 @@ jobs:
 
       - name: cache luajit
         id: cache-luajit
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: LuaJIT
           key: ${{ runner.os }}-luajit-${{ matrix.arch }} 
@@ -332,7 +332,7 @@ jobs:
 
       - name: upload artifact
         if: matrix.maker == 'xmake'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: rimeapi.lua-win${{ matrix.arch }}-dist.zip
           path: rimeapi.lua-win${{ matrix.arch }}-dist.zip
@@ -343,37 +343,36 @@ jobs:
     needs: [build-macos, build-windows, build-ubuntu]
     steps:
       - name: Download macOS artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rimeapi.lua-macos-dist.tar.gz
           path: ./artifacts/
 
       - name: Download Windows x64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rimeapi.lua-winx64-dist.zip
           path: ./artifacts/
 
       - name: Download Windows x86 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rimeapi.lua-winx86-dist.zip
           path: ./artifacts/
 
       - name: Download Ubuntu 24.04 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rimeapi.lua-ubuntu24.04-dist.tar.gz
           path: ./artifacts/
 
       - name: Create latest release
         if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
-        uses: marvinpinto/action-automatic-releases@latest
+        uses: softprops/action-gh-release@v3
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          automatic_release_tag: latest
+          tag_name: latest
           prerelease: true
-          title: "Latest Build"
+          name: "Latest Build"
           files: |
             ./artifacts/rimeapi.lua-macos-dist.tar.gz
             ./artifacts/rimeapi.lua-winx64-dist.zip
