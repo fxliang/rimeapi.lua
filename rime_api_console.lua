@@ -48,6 +48,22 @@ if not RimeApi then
   require('rimeapi')
 end
 -------------------------------------------------------------------------------
+local base_dir = script_path()
+
+local function print_usage()
+  print("Usage: lua rime_api_console.lua [user_data_dir] [log_dir] [shared_data_dir]")
+  print("Defaults: " .. base_dir .. "/user " .. base_dir .. "/log " .. base_dir .. "/shared")
+end
+
+if arg[1] == "-h" or arg[1] == "--help" then
+  print_usage()
+  os.exit(0)
+end
+
+local user_data_dir = arg[1] or (base_dir .. "/user")
+local log_dir = arg[2] or (base_dir .. "/log")
+local shared_data_dir = arg[3] or (base_dir .. "/shared")
+
 local completion = require('rimeapi_completion')
 local cp
 if package.config:sub(1, 1) == '\\' then
@@ -86,13 +102,13 @@ local function init()
   local traits = RimeTraits()
   print('initializing...')
   traits.app_name = "rime_api_console.lua"
-  traits.shared_data_dir = script_path() .. "/shared"
-  traits.user_data_dir = script_path() .. "/user"
-  traits.prebuilt_data_dir = script_path() .. "/shared"
+  traits.shared_data_dir = shared_data_dir
+  traits.user_data_dir = user_data_dir
+  traits.prebuilt_data_dir = shared_data_dir
   traits.distribution_name = "rime_api_console"
   traits.distribution_code_name = "rime_api_console"
   traits.distribution_version = "1.0.0"
-  traits.log_dir = script_path() .. "/log"
+  traits.log_dir = log_dir
   -- print(traits)
   if not os.mkdir then
     -- check system is windows or unix-like
