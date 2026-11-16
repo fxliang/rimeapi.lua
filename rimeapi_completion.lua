@@ -76,6 +76,9 @@ local function add(key)
 end
 
 local combo_keys = {
+  'Shift_L', 'Shift_R', 'Control_L', 'Control_R',
+  'Alt_L', 'Alt_R', 'Super_L', 'Super_R',
+  'Meta_L', 'Meta_R', 'Hyper_L', 'Hyper_R',
   'grave', 'space', 'Tab', 'Return', 'BackSpace', 'Escape',
   'Left', 'Right', 'Up', 'Down', 'Home', 'End',
   'Page_Up', 'Page_Down', 'Delete', 'Insert',
@@ -99,7 +102,7 @@ for i = 1, 12 do
 end
 
 local modifier_orders = {
-  { 'Shift' }, { 'Control' }, { 'Alt' }, { 'Super' },
+  { 'Shift' }, { 'Control' }, { 'Alt' }, { 'Super' }, { 'Release' },
   { 'Shift', 'Control' }, { 'Control', 'Shift' },
   { 'Shift', 'Alt' }, { 'Alt', 'Shift' },
   { 'Control', 'Alt' }, { 'Alt', 'Control' },
