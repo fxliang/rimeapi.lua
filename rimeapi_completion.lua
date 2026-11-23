@@ -135,6 +135,7 @@ local console_commands = {
   'set option ',
   'delete ',
   'delete on current page ',
+  'synchronize',
 }
 
 local console = {}
@@ -152,6 +153,78 @@ for _, item in ipairs(rime_keys) do
     display = item,
     kind = 'key',
   }
+end
+
+local function append_schema_completions(api, out)
+  local schemas = RimeSchemaList()
+  if not api:get_schema_list(schemas) then
+    return
+  end
+  for _, schema in ipairs(schemas.list) do
+    local schema_id = schema.schema_id
+    if schema_id and schema_id ~= '' then
+      out[#out + 1] = {
+        text = 'select schema ' .. schema_id,
+        display = schema_id,
+        detail = schema.name or '',
+        kind = 'schema',
+      }
+    end
+  end
+end
+
+local function append_option(out, option)
+  out[#out + 1] = {
+    text = 'set option ' .. option,
+    display = option,
+    detail = 'schema option',
+    kind = 'option',
+  }
+end
+
+local function append_option_completions(api, schema_id, out)
+  if not schema_id or schema_id == '' then
+    return
+  end
+  local config = RimeConfig()
+  if not api:schema_open(schema_id, config) then
+    return
+  end
+  local iterator = RimeConfigIterator()
+  if api:config_begin_list(iterator, config, 'switches') then
+    while api:config_next(iterator) do
+      local item_path = iterator.path or ''
+      local name = api:config_get_cstring(config, item_path .. '/name')
+      if name and name ~= '' then
+        append_option(out, name)
+      else
+        local option_iterator = RimeConfigIterator()
+        if api:config_begin_list(option_iterator, config, item_path .. '/options') then
+          while api:config_next(option_iterator) do
+            local option = api:config_get_cstring(config, option_iterator.path)
+            if option and option ~= '' then
+              append_option(out, option)
+            end
+          end
+          api:config_end(option_iterator)
+        end
+      end
+    end
+    api:config_end(iterator)
+  end
+  api:config_close(config)
+end
+
+function M.build(api, schema_id)
+  local out = {}
+  for i = 1, #console do
+    out[i] = console[i]
+  end
+  if api then
+    append_schema_completions(api, out)
+    append_option_completions(api, schema_id, out)
+  end
+  return out
 end
 
 M.rime_keys = rime_keys

@@ -277,6 +277,12 @@ local function execute_special_command(session_id, input)
       for i = 1, lst.size do print(lst.list[i].schema_id, lst.list[i].name) end
     end
     return true
+  elseif input == "synchronize" then
+    print("synchronizing user data...")
+    if not api:sync_user_data() then
+      print("failed to synchronize user data")
+    end
+    return true
   end
   return false
 end
@@ -307,10 +313,13 @@ local function main()
 
   while continue do
     local header = nil
+    local schema_id = nil
     if api:get_status(session_id, status) then
       header = status_header(status)
+      schema_id = status.schema_id
     end
-    local input = readline(prompt, history, nil, nil, completion.console, header)
+    local completions = completion.build(api, schema_id)
+    local input = readline(prompt, history, nil, nil, completions, header)
     if input == nil then
       break
     elseif input == '' then
