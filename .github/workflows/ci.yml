@@ -366,6 +366,18 @@ jobs:
           name: rimeapi.lua-ubuntu24.04-dist.tar.gz
           path: ./artifacts/
 
+      - name: Checkout
+        if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Move latest tag
+        if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
+        run: |
+          git tag -f latest ${{ github.sha }}
+          git push -f origin latest
+
       - name: Create latest release
         if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
         uses: softprops/action-gh-release@v3
