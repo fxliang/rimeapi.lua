@@ -372,6 +372,26 @@ jobs:
           name: rimeapi.lua-ubuntu24.04-dist.tar.gz
           path: ./artifacts/
 
+      - name: Generate release notes
+        if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
+        env:
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          old=$(git rev-parse -q --verify refs/tags/latest || true)
+          {
+            echo "Automated build from \`${SHA:0:7}\`."
+            echo
+            echo "## Changes"
+            if [ -n "$old" ] && [ "$old" != "$SHA" ]; then
+              git log --no-merges --pretty='- %s ([%h](https://github.com/'"$REPO"'/commit/%H))' "$old..$SHA"
+              echo
+              echo "**Full Changelog**: https://github.com/$REPO/compare/${old}...${SHA}"
+            else
+              git log -1 --no-merges --pretty='- %s ([%h](https://github.com/'"$REPO"'/commit/%H))' "$SHA"
+            fi
+          } > release_notes.md
+
       - name: Move latest tag
         if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
         run: |
@@ -385,6 +405,7 @@ jobs:
           tag_name: latest
           prerelease: true
           name: "Latest Build"
+          body_path: release_notes.md
           files: |
             ./artifacts/rimeapi.lua-macos-dist.tar.gz
             ./artifacts/rimeapi.lua-winx64-dist.zip
