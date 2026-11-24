@@ -1,9 +1,15 @@
 # rimeapi.lua: a lua API module for librime
 
+English | [简体中文](README.zh-CN.md)
+
 ## Overview
 This module provides a set of functions to interact with the Rime Input Method Engine, allowing users to reference **librime api**, **librime levers** api related functionalities programmatically.
 
 Use one binding backend per process. librime exposes one process-wide notification handler, so native `rimeapi_lua` and the LuaJIT `noti_bridge` must not be registered simultaneously.
+
+See the [Lua API guide](docs/api.md) for initialization, lifecycle, ownership,
+and API behavior. The complete signatures are in
+[`rimeapi.annotation.lua`](rimeapi.annotation.lua).
 
 ## Build Instructions
 To build the shared libraries, use xmake or CMake. Follow these steps (or the workflow in `./.github/workflows/ci.yml`):
@@ -79,6 +85,107 @@ index 42f2ebb..404567e 100644
 - `schema_tester.lua`: a lua script demo for testing rime schema
 - `schema_tester_config.lua`: a config file for `schema_tester.lua`
 
+## Command-line tools
+
+All tools below are self-contained scripts. They add the current directory to
+`package.path`/`package.cpath`, load `rimeapi`, and run on any of
+`luajit`/`lua`/`lua5.x` found in `PATH`. The `rimeapi_lua` shared library and
+`librime` must be findable from the script directory or the current working
+directory.
+
+### `rimeapi.app.lua` — REPL and script runner
+
+```sh
+./rimeapi.app.lua                 # start the interactive REPL
+./rimeapi.app.lua script.lua a b  # run script.lua with arguments a b
+./rimeapi.app.lua some/dir/       # run some/dir/init.lua
+```
+
+- With no arguments it starts a REPL; `Ctrl-C`/`Ctrl-D` exits.
+- With a script path it executes that script inside the rimeapi environment and
+  forwards the remaining arguments through `arg` (`arg[1]` is the script).
+- With a directory it runs the `init.lua` inside it.
+- REPL errors show the failing line and a caret for syntax errors.
+
+### `test.lua` — test harness
+
+```sh
+./lua test.lua -h                          # list modules under scripts/
+./lua test.lua api_test levers_api_test    # run one or more script modules
+RIMEAPI_TEST_USER_DIR=/tmp/rime ./lua test.lua api_test
+```
+
+- Modules are loaded from `scripts/<name>.lua`.
+- Each process uses a unique temporary user-data directory; override it with
+  `RIMEAPI_TEST_USER_DIR`.
+- Runs the same on `lua` and `luajit`.
+
+### `rime_api_console.lua` — interactive librime console
+
+```sh
+./rime_api_console.lua [user_data_dir] [log_dir] [shared_data_dir]
+```
+
+Defaults are `./user`, `./log`, and `./shared` next to the script. Most input is
+sent to the session as a Rime key sequence, with these special commands:
+
+- `select schema <id>`
+- `set option <name>` / `set option !<name>` (prefix `!` to turn it off)
+- `select candidate <n>`, `delete <n>`, `delete on current page <n>` (`n` is 1-based)
+- `print candidate list`, `print schema list`
+- `synchronize` (sync user data)
+- `reload` (finalize, reload the script), `exit`
+
+The prompt shows a live schema/status header and an IDE-style completion menu;
+see [Interactive completion menu](#interactive-completion-menu) for its keys.
+
+### `schema_tester.lua` — declarative schema testing
+
+```sh
+./schema_tester.lua [config.lua]
+```
+
+Runs the test groups defined under `deploy` in `schema_tester_config.lua` (or a
+config file passed as the first argument). A config returns a table with:
+
+- `schema_id`, `user_data_dir`, `shared_data_dir` (optional), `log_dir` (optional)
+- `deploy`: a map of group name to `{ options, properties, patch, tests }`
+- each test: `{ send = 'key_sequence', run = 'lua expr' or fn,
+  assert = 'lua expr' or fn, options = {...}, properties = {...} }`
+
+`send` simulates a key sequence; after each key the `run` script runs and the
+`assert` script is evaluated. `ctx`, `status`, `commit`, and `cand` are exposed,
+plus any option/property names listed in `options`/`properties`. `patch` applies
+`{ key = ..., value = ... }` lines to the schema (e.g. `engine/translators = []`)
+for the duration of the group. Config values may be strings or functions.
+
+For LLM-assisted authoring, see the skill in
+[`skills/schema-tester/SKILL.md`](skills/schema-tester/SKILL.md).
+
+### `rime_deployer.lua` — deploy user data
+
+```sh
+./rime_deployer.lua [user_data_dir] [shared_data_dir] [staging_dir]
+```
+
+Runs librime maintenance (deploy) and writes built files to
+`user_data_dir/build`, or to `staging_dir` when given. With no arguments it
+prints usage.
+
+### `get-rime.ps1` — fetch librime binaries (Windows/macOS)
+
+```powershell
+pwsh ./get-rime.ps1 -h
+pwsh ./get-rime.ps1 -tag latest -use toy
+```
+
+- `-tag`: release tag such as `1.11.2`, or `latest` for nightly builds
+- `-os`: `Windows` or `macOS` (defaults to the running system)
+- `-build_variant`: `msvc`/`clang`/`mingw` on Windows, `universal` on macOS
+- `-use`: `toy` (plain libs), `dev` (build Weasel), or `weasel` (update an existing Weasel)
+- `-extract`: `$true` to extract archives (requires `7z` in `PATH`)
+- `-proxy`: e.g. `http://host:port`; a GitHub mirror can be set in `~/.git-rime.conf.ps1`
+
 ## Interactive completion menu
 
 `rime_api_console.lua` uses an in-process line editor with an IDE-style
@@ -102,7 +209,7 @@ tables (plain strings are still accepted). `kind` selects the menu marker:
 passes the current schema/status line, which is rendered above the prompt and
 is redrawn together with the completion menu.
 
-## Credites
+## Credits
 
 - [librime](https://github.com/rime/librime) (The 3-Clause BSD License) RIME: Rime Input Method Engine
 - [librime-lua](https://github.com/hchunhui/librime-lua) (The 3-Clause BSD License) librime-lua: Extending RIME with Lua scripts. The lua binding codes is a mod from it.
