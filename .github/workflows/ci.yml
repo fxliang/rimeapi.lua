@@ -342,6 +342,12 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [build-macos, build-windows, build-ubuntu]
     steps:
+      - name: Checkout
+        if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - name: Download macOS artifact
         uses: actions/download-artifact@v8
         with:
@@ -365,12 +371,6 @@ jobs:
         with:
           name: rimeapi.lua-ubuntu24.04-dist.tar.gz
           path: ./artifacts/
-
-      - name: Checkout
-        if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Move latest tag
         if: ${{ github.repository == 'fxliang/rimeapi.lua' && github.ref == 'refs/heads/master' }}
