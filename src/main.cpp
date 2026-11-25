@@ -350,7 +350,7 @@ namespace RimeCandidateReg {
       repr += "  text=\"" + std::string(t->text);
     if (t->comment)
       repr += "\",  comment=\"" + std::string(t->comment);
-    repr +=  + "\"  }";
+    repr += "\"  }";
     lua_pushstring(L, repr.c_str());
     return 1;
   }
@@ -2301,14 +2301,22 @@ namespace RimeLeversApiReg {
       Bool ret = false;
       if (strcmp(func_name, "customize_bool") == 0) {
         Bool val = lua_toboolean(L, 4);
-        ret = reinterpret_cast<Bool(*)(RimeCustomSettings*, const char*, Bool)>(func_ptr)(settings, key, val);
+        Bool(*fn)(RimeCustomSettings*, const char*, Bool);
+        static_assert(sizeof(fn) == sizeof(func_ptr), "function pointer size mismatch");
+        std::memcpy(&fn, &func_ptr, sizeof(fn));
+        ret = fn(settings, key, val);
       } else if (strcmp(func_name, "customize_int") == 0) {
         int val = luaL_checkinteger(L, 4);
-        ret = reinterpret_cast<Bool(*)(RimeCustomSettings*, const char*, int)>(func_ptr)(settings, key, val);
+        Bool(*fn)(RimeCustomSettings*, const char*, int);
+        static_assert(sizeof(fn) == sizeof(func_ptr), "function pointer size mismatch");
+        std::memcpy(&fn, &func_ptr, sizeof(fn));
+        ret = fn(settings, key, val);
       } else {
-        // fallback: try boolean first
         Bool val = lua_toboolean(L, 4);
-        ret = reinterpret_cast<Bool(*)(RimeCustomSettings*, const char*, Bool)>(func_ptr)(settings, key, val);
+        Bool(*fn)(RimeCustomSettings*, const char*, Bool);
+        static_assert(sizeof(fn) == sizeof(func_ptr), "function pointer size mismatch");
+        std::memcpy(&fn, &func_ptr, sizeof(fn));
+        ret = fn(settings, key, val);
       }
       lua_pushboolean(L, ret);
       return 1;
@@ -2392,10 +2400,9 @@ namespace RimeLeversApiReg {
       for (size_t i = 1; i <= len; ++i) {
         lua_rawgeti(L, 3, i);
         ids[i - 1] = luaL_checkstring(L, -1);
-        lua_pop(L, 1);
       }
       Bool ret = func_ptr(settings, ids, (int)len);
-      lua_pop(L, 1);
+      lua_pop(L, (int)len + 1);
       lua_pushboolean(L, ret);
       return 1;
     } else if constexpr SIGNATURE_CHECK(const char*, RimeSwitcherSettings*) {

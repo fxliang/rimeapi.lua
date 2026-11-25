@@ -309,6 +309,7 @@ ffi.cdef[[
   int init_bridge(void);
   void finalize_bridge(void);
   const char* readline_bridge(const char* prompt, const char** history, int history_count, const char* context, const char* continuation_prompt, const char** completions, const char** displays, const char** details, const char** kinds, int completion_count, const char* header);
+  void free_readline_result(const char* s);
 ]]
 
 function to_acp_path(path, cp)
@@ -361,7 +362,9 @@ os.mkdir = type(os.mkdir) == 'function' and os.mkdir or function (path, codepage
     -- fix path for termux
     if is_termux then
       if os.isdir(path, codepage) then return true end
-      os.execute("mkdir -p '" .. path .. "'")
+      -- single-quote escaping is injection-safe in POSIX sh
+      local quoted = "'" .. path:gsub("'", "'\\''") .. "'"
+      os.execute("mkdir -p " .. quoted)
       return os.isdir(path)
     end
     if os.isdir(path, codepage) then return true end
@@ -450,20 +453,23 @@ local function script_path()
   local fullpath = debug.getinfo(1,"S").source:sub(2)
   local dirname, filename
   if package.config:sub(1,1) == '\\' then
-    local dirname_, filename_ = fullpath:match('^(.*\\)([^\\]+)$')
-    if not dirname_ then dirname_ = '.' end
-    if not filename_ then filename_ = fullpath end
-    local command = 'cd ' .. dirname_ .. ' && cd'
-    local p = io.popen(command)
-    fullpath = p and (p:read("*l") .. '\\' .. filename_) or ''
-    if p then p:close() end
-    fullpath = fullpath:gsub('[\n\r]*$','')
+    ffi.cdef[[
+      unsigned long GetFullPathNameA(const char* lpFileName, unsigned long nBufferLength, char* lpBuffer, char** lpFilePart);
+    ]]
+    local acp = to_acp_path(fullpath) or fullpath
+    local buf = ffi.new("char[4096]")
+    local len = ffi.C.GetFullPathNameA(acp, 4096, buf, nil)
+    if len > 0 and len < 4096 then
+      fullpath = ffi.string(buf, len)
+    end
     dirname, filename = fullpath:match('^(.*\\)([^\\]+)$')
   else
-    local p = io.popen("realpath '"..fullpath.."'", 'r')
-    fullpath = p and p:read('*a') or ''
-    if p then p:close() end
-    fullpath = fullpath:gsub('[\n\r]*$','')
+    ffi.cdef[[ char* realpath(const char* path, char* resolved_path); ]]
+    local buf = ffi.new("char[4096]")
+    local r = ffi.C.realpath(fullpath, buf)
+    if r ~= nil then
+      fullpath = ffi.string(r)
+    end
     dirname, filename = fullpath:match('^(.*/)([^/]-)$')
   end
   dirname = dirname or ''
@@ -539,11 +545,28 @@ local function NotificationBridge()
   local lib = ffi.load(script_path() .. libname)
   if not lib then error("Failed to load " .. libname) end
   local handle_ptr = ffi.new("void*[1]")
-  local gc_callback = function(_) lib.finalize_bridge() end
+  local finalized = false
+  local gc_callback = function(_)
+    if not finalized then
+      finalized = true
+      lib.finalize_bridge()
+    end
+  end
   ffi.gc(handle_ptr, gc_callback)
   return setmetatable({
     _lib = lib,
-    _gc_guard = handle_ptr  -- avoid handle_ptr GC before program exit
+    _gc_guard = handle_ptr,
+    init_once = function()
+      local ok = lib.init_bridge()
+      if ok == 0 then finalized = false end
+      return ok
+    end,
+    finalize_once = function()
+      if not finalized then
+        finalized = true
+        lib.finalize_bridge()
+      end
+    end,
   }, {
     __index = function(t, k) return t._lib[k] end,
     __gc = function(_) end
@@ -611,7 +634,9 @@ function readline(prompt, history, context, continuation_prompt, completions, he
   end
   local res = bridge.readline_bridge(prompt, history_ptr, history_count, context, continuation_prompt, completions_ptr, displays_ptr, details_ptr, kinds_ptr, completion_count, header)
   if res == nil then return nil end
-  return ffi.string(res)
+  local s = ffi.string(res)
+  bridge.free_readline_result(res)
+  return s
 end
 -------------------------------------------------------------------------------
 local function ensure_api()
@@ -859,9 +884,6 @@ function RimeCommit()
       elseif k == 'type' then return 'RimeCommit' end
     end,
     __newindex = function(_, k, v) error("RimeCommit is read-only") end,
-    __gc = function()
-      call_api_quiet("free_commit", obj._c)
-    end,
   }
   setmetatable(obj, mt)
   return obj
@@ -988,7 +1010,6 @@ function RimeCandidateListIterator()
   local mt = {
     __index = function(_, k)
       if k == 'index' then return tonumber(obj._c.index)
-      elseif k == 'index' then return tonumber(obj._c.index)
       elseif k == 'type' then return 'RimeCandidateListIterator'
       elseif k == 'candidate' then
         local cand = RimeCandidate()
@@ -1491,13 +1512,13 @@ function RimeApi()
           if type(handler_func) ~= 'function' then
             local ok, err = xpcall(function()
               obj:drain_notifications()
-              bridge.finalize_bridge()
+              bridge.finalize_once()
             end, debug.traceback)
             if not ok then print("Error while finalizing bridge: " .. tostring(err)) end
             obj._notifications_handler = nil
             return nil
           end
-          bridge.init_bridge()
+          bridge.init_once()
           obj._notifications_handler = handler_func
           return nil
         end

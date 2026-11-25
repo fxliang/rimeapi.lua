@@ -1,6 +1,8 @@
 #include "utils.h"
 #include "line_editor.h"
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 
 typedef struct {
   RimeSessionId id;
@@ -96,10 +98,17 @@ extern "C" {
       }
     }
     editor.SetCompletions(completion_vec);
-    thread_local std::string line_buffer;
-    if (editor.ReadLine(prompt, &line_buffer, context, continuation_prompt, header)) {
-      return line_buffer.c_str();
+    std::string line;
+    if (editor.ReadLine(prompt, &line, context, continuation_prompt, header)) {
+      const size_t n = line.size() + 1;
+      char* buf = static_cast<char*>(std::malloc(n));
+      if (buf) std::memcpy(buf, line.c_str(), n);
+      return buf;
     }
     return nullptr;
+  }
+
+  RIME_API void free_readline_result(const char* s) {
+    std::free(const_cast<char*>(s));
   }
 }

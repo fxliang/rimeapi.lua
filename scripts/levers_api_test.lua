@@ -1,5 +1,6 @@
 local rime_api = RimeApi()
 local traits = RimeTraits()
+local path_sep = package.config:sub(1,1) == '\\' and '\\' or '/'
 traits.app_name = "rimeapi"
 traits.shared_data_dir = "shared"
 local test_user_dir = rawget(_G, "RIMEAPI_TEST_USER_DIR") or os.getenv("RIMEAPI_TEST_USER_DIR") or "api_test"
@@ -8,14 +9,21 @@ traits.prebuilt_data_dir = "shared"
 traits.distribution_name = "rimeapi"
 traits.distribution_code_name = "rimeapi"
 traits.distribution_version = "1.0.0"
-traits.log_dir = test_user_dir .. "/log"
+traits.log_dir = test_user_dir .. path_sep .. "log"
 if not os.mkdir then
   -- check system is windows or unix-like
   local is_windows = package.config:sub(1, 1) == '\\'
   local mkdir_cmd = is_windows and "md " or "mkdir -p "
-  os.execute(mkdir_cmd .. '"' .. traits.shared_data_dir .. '"')
-  os.execute(mkdir_cmd .. '"' .. traits.user_data_dir .. '"')
-  os.execute(mkdir_cmd .. '"' .. traits.log_dir .. '"')
+  local function q(s)
+    if is_windows then
+      if s:find('[%%!&|<>%^()"\r\n]') then error("unsupported character in Windows path") end
+      return '"' .. s .. '"'
+    end
+    return "'" .. s:gsub("'", "'\\''") .. "'"
+  end
+  os.execute(mkdir_cmd .. q(traits.shared_data_dir))
+  os.execute(mkdir_cmd .. q(traits.user_data_dir))
+  os.execute(mkdir_cmd .. q(traits.log_dir))
 else
   os.mkdir(traits.shared_data_dir)
   os.mkdir(traits.user_data_dir)
@@ -261,13 +269,13 @@ assert(levers:import_user_dict('luna_pinyin', 'luna_pinyin.export.txt') ~= nil)
 print('levers:import_user_dict passed')
 assert(levers:backup_user_dict('luna_pinyin') == true)
 print('levers:backup_user_dict passed')
-local snap = (rime_api:get_user_data_sync_dir(512) .. '/luna_pinyin.userdb.txt')
+local snap = (rime_api:get_user_data_sync_dir(512) .. path_sep .. 'luna_pinyin.userdb.txt')
 assert(levers:restore_user_dict(snap) == true)
 print('levers:restore_user_dict passed')
 -------------------------------
 --- cleanup patches
-os.remove(test_user_dir .. '/default.custom.yaml')
-os.remove(test_user_dir .. '/api_test.custom.yaml')
+os.remove(test_user_dir .. path_sep .. 'default.custom.yaml')
+os.remove(test_user_dir .. path_sep .. 'api_test.custom.yaml')
 os.remove('luna_pinyin.export.txt')
 rime_api:finalize()
 levers = nil

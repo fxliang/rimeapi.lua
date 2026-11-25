@@ -63,11 +63,11 @@
 ---@field reload fun(self: self, config_name: string): boolean
 ---@field open fun(self: self, config_name: string): boolean
 ---@field close fun(self: self): boolean
----@field get_int fun(self: self, key: string): integer
----@field get_string fun(self: self, key: string, buffer_size: integer|nil): string
----@field get_bool fun(self: self, key: string): boolean
----@field get_double fun(self: self, key: string): number
----@field get_cstring fun(self: self, key: string): string
+---@field get_int fun(self: self, key: string): integer|nil
+---@field get_string fun(self: self, key: string, buffer_size: integer|nil): string|nil
+---@field get_bool fun(self: self, key: string): boolean|nil
+---@field get_double fun(self: self, key: string): number|nil
+---@field get_cstring fun(self: self, key: string): string|nil
 ---@field set_int fun(self: self, key: string, value: integer): boolean
 ---@field set_string fun(self: self, key: string, value: string): boolean
 ---@field set_bool fun(self: self, key: string, value: boolean): boolean
@@ -130,9 +130,7 @@
 ---@field type string
 
 ---@class RimeModule
----@field initialize fun(self: self) :nil
----@field finalize fun(self: self) : nil
----@field get_api fun(self: self) : RimeCustomApi
+---@field get_api fun(self: self) : RimeCustomApi|nil
 ---@field type string
 
 ---@class RimeApi
