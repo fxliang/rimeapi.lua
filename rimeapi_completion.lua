@@ -227,6 +227,111 @@ function M.build(api, schema_id)
   return out
 end
 
+local lua_keywords = {}
+for word in ('and break do else elseif end false for function goto if in local nil not or repeat return then true until while'):gmatch('%S+') do
+  lua_keywords[word] = true
+end
+
+local lua_classes
+
+function M.build_lua(environment)
+  environment = environment or _G
+  if not lua_classes then
+    lua_classes = {}
+    local source = debug.getinfo(1, 'S').source:sub(2)
+    local base = source:match('^(.*[/\\])') or ''
+    local file = io.open(base .. 'rimeapi.annotation.lua', 'r')
+    if file then
+      -- Read declarations as data; executing this file would replace constructors.
+      local fields
+      for line in file:lines() do
+        local class = line:match('^%-%-%-@class%s+(%w+)')
+        if class then
+          fields = {}
+          lua_classes[class] = fields
+        elseif fields then
+          local name, detail = line:match('^%-%-%-@field%s+([%w_]+)%s+(.+)')
+          if name then fields[name] = detail end
+        end
+      end
+      file:close()
+    end
+  end
+
+  local out, seen, ancestors = {}, {}, {}
+  local function append(text, detail)
+    if seen[text] or #out >= 4096 then return end
+    seen[text] = true
+    out[#out + 1] = { text = text, display = text, detail = detail, kind = 'lua' }
+  end
+  for word in next, lua_keywords do append(word, 'Lua keyword') end
+
+  local function visit(value, prefix, depth, limit)
+    if ancestors[value] or #out >= limit then return end
+    ancestors[value] = true
+    local members, inherited = {}, {}
+    local function member(name, item, detail, method)
+      if type(name) ~= 'string' or not name:match('^[%a_][%w_]*$') or lua_keywords[name] then return end
+      if prefix ~= '' and name:sub(1, 1) == '_' then return end
+      if not members[name] then
+        members[name] = { value = item, detail = detail, method = method }
+      end
+    end
+    local function collect(object)
+      if inherited[object] then return end
+      inherited[object] = true
+      if type(object) == 'table' then
+        for name, item in next, object do member(name, item, type(item), type(item) == 'function') end
+      end
+      local mt = debug.getmetatable(object)
+      if type(mt) ~= 'table' then return end
+      local index = rawget(mt, '__index')
+      if type(index) == 'table' then collect(index) end
+      local methods, getters = rawget(mt, 'methods'), rawget(mt, 'vars_get')
+      if type(methods) == 'table' then
+        for name, item in next, methods do member(name, item, 'method', true) end
+      end
+      if type(getters) == 'table' then
+        for name in next, getters do member(name, nil, 'field', false) end
+      end
+      local class = rawget(mt, '__name')
+      for name, detail in next, lua_classes[class] or {} do
+        member(name, nil, detail, detail:match('^fun%s*%(') ~= nil)
+      end
+    end
+    collect(value)
+    local names = {}
+    for name in next, members do names[#names + 1] = name end
+    table.sort(names)
+    local children = {}
+    for _, name in ipairs(names) do
+      if #out >= limit then break end
+      local item = members[name]
+      local text = prefix .. name
+      append(text, item.detail)
+      if prefix ~= '' and item.method and #out < limit then
+        append(prefix:sub(1, -2) .. ':' .. name, item.detail)
+      end
+      -- Bound traversal and inspect raw members only, without invoking getters.
+      local kind = type(item.value)
+      if depth < 2 and (kind == 'table' or kind == 'userdata') then
+        children[#children + 1] = { value = item.value, prefix = text .. '.' }
+      end
+    end
+    -- Reserve names before expanding children, sharing the remaining budget.
+    for i, child in ipairs(children) do
+      local budget = math.floor((limit - #out) / (#children - i + 1))
+      if budget > 0 then
+        visit(child.value, child.prefix, depth + 1, #out + budget)
+      end
+    end
+    ancestors[value] = nil
+  end
+  visit(environment, '', 0, 4096)
+  table.sort(out, function(a, b) return a.text < b.text end)
+  return out
+end
+
 M.rime_keys = rime_keys
 M.keys = rime_keys
 M.console_commands = console_commands

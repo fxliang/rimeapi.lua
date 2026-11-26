@@ -79,7 +79,7 @@ index 42f2ebb..404567e 100644
 - `scripts/levers_api_test.lua`: a rime levers api test script
 - `shared`: base yamls from `librime` project, and a yaml `api_test.yaml`
 - `rimeapi.app.lua`: a Lua 5.4/LuaJIT script, work as a REPL when no extra args passed, or run test scripts when args passed
-- `rimeapi_completion.lua`: readline completion catalogs, including named Rime keys and common key combinations
+- `rimeapi_completion.lua`: readline completion catalogs for Lua names/members, named Rime keys, and common key combinations
 - `rime_api_console.lua`: a lua script to work like `rime_api_console` of `librime`
 - `get-rime.ps1`: a powershell script tool for getting `librime` for windows/macos
 - `schema_tester.lua`: a lua script demo for testing rime schema
@@ -106,6 +106,15 @@ directory.
   forwards the remaining arguments through `arg` (`arg[1]` is the script).
 - With a directory it runs the `init.lua` inside it.
 - REPL errors show the failing line and a caret for syntax errors.
+- The REPL suggests Lua keywords, globals, and table/Rime object members at the
+  end of the line. Press `Tab` to open or accept completions; see
+  [Interactive completion menu](#interactive-completion-menu). Try `math.si`, or
+  run `api = RimeApi()` and then type `api:get_`.
+- The catalog refreshes at each prompt from the globals of executed code, up to
+  three name levels. It does not infer pending local declarations or expressions
+  such as function calls. Name completion is suppressed in strings and comments,
+  and does not call property getters. LuaJIT object members use declarations from
+  `rimeapi.annotation.lua` next to the completion module.
 
 ### `test.lua` — test harness
 
@@ -188,8 +197,8 @@ pwsh ./get-rime.ps1 -tag latest -use toy
 
 ## Interactive completion menu
 
-`rime_api_console.lua` uses an in-process line editor with an IDE-style
-completion menu when a completion catalog is supplied. The menu works on Unix
+The `rimeapi.app.lua` REPL and `rime_api_console.lua` use an in-process line editor
+with an IDE-style completion menu. The menu works on Unix
 terminals, Windows Terminal/ConHost with VT processing, and ANSI-capable
 consoles such as mintty. When VT/ANSI output is unavailable the editor degrades
 to inline suggestions.
@@ -202,8 +211,10 @@ to inline suggestions.
 - `Right`: accept the selected item at the end of the line
 
 Completion items are `{ text = ..., display = ..., detail = ..., kind = ... }`
-tables (plain strings are still accepted). `kind` selects the menu marker:
-`key` for Rime key sequences, `command` for console commands.
+tables (plain strings are still accepted), passed as the 5th argument to `readline`.
+`kind` selects the menu marker: `key` for Rime key sequences, `command` for console
+commands. REPL catalogs use `lua` throughout to match Lua name boundaries, so
+inputs such as `print(math.si` can also be completed.
 
 `readline` also accepts an optional header block (6th argument). The console
 passes the current schema/status line, which is rendered above the prompt and

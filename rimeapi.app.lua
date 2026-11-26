@@ -58,6 +58,7 @@ local function script_path()
   filename = filename or fullpath
   return dirname
 end
+package.path = script_path() .. '?.lua;' .. package.path
 if not RimeApi then
   --- add the so/dll/lua files in cwd to package.cpath
 
@@ -65,7 +66,6 @@ if not RimeApi then
   local base = script_path()
   local script_cpath = base .. div .. '?.dll' .. ';' .. base .. div .. '?.dylib' .. ';' .. base .. div .. '?.so'
   package.cpath = package.cpath .. ';' .. script_cpath
-  package.path = base .. div .. '?.lua' .. ';' .. package.path
   require('rimeapi')
 end
 --------------------------------------------------------------------------------
@@ -122,7 +122,8 @@ local function collect_chunk(history, prompt, continuation_prompt)
 
     local line
     if readline then
-      line = readline(current_prompt, history, context, continuation_prompt)
+      local completions = require('rimeapi_completion').build_lua(_G)
+      line = readline(current_prompt, history, context, continuation_prompt, completions)
     else
       io.write(current_prompt)
       io.flush()

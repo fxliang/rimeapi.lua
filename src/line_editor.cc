@@ -233,6 +233,64 @@ std::string InferKind(const LineCompletion& completion) {
   return "command";
 }
 
+size_t LuaCompletionStart(const std::string& text) {
+  size_t begin = 0;
+  size_t i = 0;
+  while (i < text.size()) {
+    const bool comment = text.compare(i, 2, "--") == 0;
+    if (comment)
+      i += 2;
+    if (i < text.size() && text[i] == '[') {
+      size_t end = i + 1;
+      while (end < text.size() && text[end] == '=')
+        ++end;
+      if (end < text.size() && text[end] == '[') {
+        const std::string close = "]" + text.substr(i + 1, end - i - 1) + "]";
+        const size_t pos = text.find(close, end + 1);
+        if (pos == std::string::npos)
+          return std::string::npos;
+        i = pos + close.size();
+        begin = i;
+        continue;
+      }
+    }
+    if (comment) {
+      const size_t newline = text.find('\n', i);
+      if (newline == std::string::npos)
+        return std::string::npos;
+      i = newline + 1;
+      begin = i;
+      continue;
+    }
+    if (text[i] == '\'' || text[i] == '"') {
+      const char quote = text[i++];
+      bool closed = false;
+      while (i < text.size()) {
+        if (text[i] == '\\') {
+          i = std::min(text.size(), i + 2);
+        } else if (text[i++] == quote) {
+          closed = true;
+          break;
+        }
+      }
+      if (!closed)
+        return std::string::npos;
+      begin = i;
+      continue;
+    }
+    if (text.compare(i, 2, "..") == 0) {
+      i += text.compare(i, 3, "...") == 0 ? 3 : 2;
+      begin = i;
+      continue;
+    }
+    const unsigned char c = static_cast<unsigned char>(text[i]);
+    ++i;
+    if (!std::isalnum(c) && c != '_' && c != '.' && c != ':')
+      begin = i;
+  }
+  return begin;
+}
+
 }  // namespace
 
 LineEditor::LineEditor(size_t max_length) : max_length_(max_length) {
@@ -1089,30 +1147,38 @@ bool LineEditor::ComputeCompletionContext(const std::string& line,
   if (cursor != line.size() || line.empty())
     return false;
 
-  // Prefer a whole-line match so multi-word commands such as
-  // "select schema " and "print candidate list" keep working.
-  for (const auto& completion : completions_) {
-    if (completion.text.size() > line.size() &&
-        completion.text.compare(0, line.size(), line) == 0) {
-      ctx->valid = true;
-      ctx->whole_line = true;
-      ctx->begin = 0;
-      ctx->end = line.size();
-      ctx->prefix = line;
-      return true;
-    }
-  }
-
   size_t token_start = 0;
-  if (cursor > 0) {
-    const size_t space = line.find_last_of(" \t", cursor - 1);
-    if (space != std::string::npos)
-      token_start = space + 1;
+  if (!completions_.empty() && completions_.front().kind == "lua") {
+    // Include previous lines so long strings and comments suppress completion.
+    const size_t begin = LuaCompletionStart(context_ + line);
+    if (begin == std::string::npos || begin < context_.size())
+      return false;
+    token_start = begin - context_.size();
+  } else {
+    // Prefer a whole-line match so multi-word commands such as
+    // "select schema " and "print candidate list" keep working.
+    for (const auto& completion : completions_) {
+      if (completion.text.size() > line.size() &&
+          completion.text.compare(0, line.size(), line) == 0) {
+        ctx->valid = true;
+        ctx->whole_line = true;
+        ctx->begin = 0;
+        ctx->end = line.size();
+        ctx->prefix = line;
+        return true;
+      }
+    }
+
+    if (cursor > 0) {
+      const size_t space = line.find_last_of(" \t", cursor - 1);
+      if (space != std::string::npos)
+        token_start = space + 1;
+    }
+    // Adjacent key expressions need no whitespace: "{Shift_L}{Release+Shi".
+    const size_t brace = line.find_last_of("{}", cursor - 1);
+    if (brace != std::string::npos && line[brace] == '{' && brace >= token_start)
+      token_start = brace;
   }
-  // Adjacent key expressions need no whitespace: "{Shift_L}{Release+Shi".
-  const size_t brace = line.find_last_of("{}", cursor - 1);
-  if (brace != std::string::npos && line[brace] == '{' && brace >= token_start)
-    token_start = brace;
   if (token_start >= cursor)
     return false;
   const std::string token = line.substr(token_start, cursor - token_start);

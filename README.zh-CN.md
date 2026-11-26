@@ -77,7 +77,7 @@ index 42f2ebb..404567e 100644
 - `scripts/levers_api_test.lua`：rime levers api 测试脚本
 - `shared`：来自 `librime` 项目的基础 yaml，以及 `api_test.yaml`
 - `rimeapi.app.lua`：Lua 5.4/LuaJIT 脚本；无参数时作为 REPL，带参数时运行测试脚本
-- `rimeapi_completion.lua`：readline 补全目录，包含 Rime 命名按键与常用组合键
+- `rimeapi_completion.lua`：readline 补全目录，包含 Lua 名称/成员及 Rime 命名按键与常用组合键
 - `rime_api_console.lua`：行为类似 `librime` 自带 `rime_api_console` 的 lua 脚本
 - `get-rime.ps1`：用于在 Windows/macOS 获取 `librime` 的 PowerShell 脚本
 - `schema_tester.lua`：用于测试 rime 方案的 lua 脚本示例
@@ -99,6 +99,8 @@ index 42f2ebb..404567e 100644
 - 传入脚本路径时，在 rimeapi 环境中执行该脚本，其余参数通过 `arg` 传入（`arg[1]` 为脚本本身）。
 - 传入目录时，运行其中的 `init.lua`。
 - REPL 报错会显示出错行号；语法错误还会用 `^` 标出位置。
+- REPL 在行尾自动提示 Lua 关键字、全局名称及表/Rime 对象成员；按 `Tab` 打开或接受补全，详见[交互式补全菜单](#交互式补全菜单)。例如输入 `math.si`，或执行 `api = RimeApi()` 后输入 `api:get_`。
+- 补全目录随每次提示符刷新，基于已执行代码的全局环境，最多枚举三层名称；不解析尚未执行的局部声明或函数调用等表达式。字符串和注释中不提供名称补全，也不会为补全调用属性 getter。LuaJIT 对象成员使用同目录的 `rimeapi.annotation.lua` 声明。
 
 ### `test.lua` —— 测试运行器
 
@@ -170,7 +172,7 @@ pwsh ./get-rime.ps1 -tag latest -use toy
 
 ## 交互式补全菜单
 
-`rime_api_console.lua` 在提供补全目录时，会使用进程内的行编辑器并显示 IDE 风格的补全菜单。该菜单支持 Unix 终端、开启了 VT 处理的 Windows Terminal/ConHost，以及 mintty 等支持 ANSI 的控制台。当 VT/ANSI 输出不可用时，编辑器会退化为行内建议。
+`rimeapi.app.lua` 的 REPL 和 `rime_api_console.lua` 使用进程内的行编辑器并提供 IDE 风格的补全菜单。该菜单支持 Unix 终端、开启了 VT 处理的 Windows Terminal/ConHost，以及 mintty 等支持 ANSI 的控制台。当 VT/ANSI 输出不可用时，编辑器会退化为行内建议。
 
 - `Tab`：打开菜单、接受高亮项，或接受唯一匹配项
 - `Up` / `Down` 或 `Ctrl-P` / `Ctrl-N`：移动选择
@@ -179,7 +181,7 @@ pwsh ./get-rime.ps1 -tag latest -use toy
 - `Esc`：关闭菜单
 - `Right`：在行尾接受选中项
 
-补全项为 `{ text = ..., display = ..., detail = ..., kind = ... }` 形式的表（仍兼容纯字符串）。`kind` 决定菜单标记：`key` 表示 Rime 按键序列，`command` 表示控制台命令。
+补全项为 `{ text = ..., display = ..., detail = ..., kind = ... }` 形式的表（仍兼容纯字符串），通过 `readline` 的第 5 个参数传入。`kind` 决定菜单标记：`key` 表示 Rime 按键序列，`command` 表示控制台命令；REPL 目录统一使用 `lua`，按 Lua 名称边界匹配，因此 `print(math.si` 等输入也能补全。
 
 `readline` 还接受一个可选的头部块（第 6 个参数）。控制台会传入当前的 schema/状态行，该内容渲染在提示符上方，并与补全菜单一起重绘。
 

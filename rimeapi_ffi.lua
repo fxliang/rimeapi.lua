@@ -811,6 +811,7 @@ function RimeTraits()
   end
 
   local mt = {
+    __name = 'RimeTraits',
     __index = function(_, k)
       if k == "modules" then
         local arr = obj._c.modules
@@ -879,6 +880,7 @@ function RimeCommit()
   local c = ffi.gc(commit,  function(cdata) call_api_quiet("free_commit", cdata) end)
   local obj = { _c = c }
   local mt = {
+    __name = 'RimeCommit',
     __index = function(_, k)
       if k == 'text' then return safestr(obj._c.text)
       elseif k == 'type' then return 'RimeCommit' end
@@ -895,6 +897,7 @@ function RimeStatus()
   local c = ffi.gc(status, function(sdata) call_api_quiet("free_status", sdata) end)
   local obj = { _c = c }
   local mt = {
+    __name = 'RimeStatus',
     __index = function(_, k)
       if k == 'schema_id' then return safestr(obj._c.schema_id)
       elseif k == 'schema_name' then return safestr(obj._c.schema_name)
@@ -941,6 +944,7 @@ function RimeComposition()
   composition.preedit = nil
   local obj = { _c = composition, _refs = {} }
   local mt = {
+    __name = 'RimeComposition',
     __index = function(_, k)
       if k == 'length' then return tonumber(obj._c.length)
       elseif k == 'cursor_pos' then return tonumber(obj._c.cursor_pos)
@@ -975,6 +979,7 @@ function RimeCandidate()
   candidate.reserved = nil
   local obj = { _c = candidate, _refs = {} }
   local mt = {
+    __name = 'RimeCandidate',
     __index = function(_, k)
       if k == 'text' then return safestr(obj._c.text) or ''
       elseif k == 'comment' then return safestr(obj._c.comment) or ''
@@ -1008,6 +1013,7 @@ function RimeCandidateListIterator()
   iterator.candidate.reserved = nil
   local obj = { _c = iterator }
   local mt = {
+    __name = 'RimeCandidateListIterator',
     __index = function(_, k)
       if k == 'index' then return tonumber(obj._c.index)
       elseif k == 'type' then return 'RimeCandidateListIterator'
@@ -1036,6 +1042,7 @@ function RimeMenu()
   menu.select_keys = nil
   local obj = { _c = menu, _refs = {} }
   local mt = {
+    __name = 'RimeMenu',
     __index = function(_, k)
       if k == 'page_size' then return tonumber(obj._c.page_size)
       elseif k == 'page_no' then return tonumber(obj._c.page_no)
@@ -1075,6 +1082,7 @@ function RimeContext()
   local c = ffi.gc(context, function(cdata) call_api_quiet("free_context", cdata) end)
   local obj = { _c = c }
   local mt = {
+    __name = 'RimeContext',
     __index = function(_, k)
       if k == 'composition' then
         local comp = RimeComposition()
@@ -1144,6 +1152,7 @@ function RimeConfig()
     return require_api_fn(ensure_api(), "RimeApi", field)
   end
   local mt = {
+    __name = 'RimeConfig',
     __index = function(_, k)
       if k == 'get_int' then
         return function(_, key)
@@ -1227,6 +1236,7 @@ function RimeConfigIterator()
   local iterator = ffi.new("RimeConfigIterator")
   local obj = { _c = iterator }
   local mt = {
+    __name = 'RimeConfigIterator',
     __index = function(_, k)
       if k == 'path' then return safestr(obj._c.path)
       elseif k == 'key' then return safestr(obj._c.key)
@@ -1250,6 +1260,7 @@ function RimeCustomApi(ptr)
   end
   local obj = { _c = custom_api }
   local mt = {
+    __name = 'RimeCustomApi',
     __index = function(_, k)
       if k == 'type' then return 'RimeCustomApi' end
     end,
@@ -1272,6 +1283,7 @@ function RimeModule(ptr)
   end
   local obj = { _c = module }
   local mt = {
+    __name = 'RimeModule',
     __index = function(_, k)
       if k == 'get_api' then
         return function(_)
@@ -1315,6 +1327,7 @@ function RimeSession(session_id)
 
   local obj = { _c = session }
   local mt = {
+    __name = 'RimeSession',
     __index = function(_, k)
       if k == 'id' then
         return obj._c.id > MAX_SAFE_INTEGER and ffi.cast("RimeSessionId", obj._c.id) or tonumber(obj._c.id)
@@ -1356,6 +1369,7 @@ function RimeStringSlice()
   slice.length = 0
   local obj = { _c = slice }
   local mt = {
+    __name = 'RimeStringSlice',
     __index = function(_, k)
       if k == 'str' then return safestr(obj._c.str)
       elseif k == 'length' then return tonumber(obj._c.length)
@@ -1377,6 +1391,7 @@ function RimeSchemaInfo(ptr, owner)
     return fn and safestr(fn(obj._c)) or nil
   end
   local mt = {
+    __name = 'RimeSchemaInfo',
     __index = function(_, k)
       if k == 'schema_id' then return get("get_schema_id")
       elseif k == 'name' then return get("get_schema_name")
@@ -1408,6 +1423,7 @@ function RimeSchemaListItem(ptr, owner)
   own_cstring(obj, "schema_id")
   own_cstring(obj, "name")
   local mt = {
+    __name = 'RimeSchemaListItem',
     __index = function(_, k)
       if k == 'schema_id' then return safestr(obj._c.schema_id) or ''
       elseif k == 'name' then return safestr(obj._c.name) or ''
@@ -1428,6 +1444,7 @@ function RimeSchemaList()
   local schema_list = ffi.new("RimeSchemaList")
   local obj = { _c = schema_list }
   local mt = {
+    __name = 'RimeSchemaList',
     __index = function(_, k)
       if k == 'size' then return tonumber(obj._c.size)
       elseif k == 'list' then
@@ -1499,6 +1516,7 @@ function RimeApi()
     return require_api_fn(obj._c, "RimeApi", field)
   end
   local mt = {
+    __name = 'RimeApi',
     __index = function(_, k)
       if k == '_notification_entry_id' then
         return rawget(obj, k)
@@ -2003,6 +2021,7 @@ local function wrap_levers_api(get_pointer)
 
   local obj = {}
   local mt = {
+    __name = 'RimeLeversApi',
     __index = function(_, k)
       if k == '_c' then return ensure_levers() end
       if k == 'type' then return 'RimeLeversApi' end
